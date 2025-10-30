@@ -2,62 +2,64 @@ import { NextResponse } from "next/server";
 
 type PolymarketTrade = {
   amount_usdc?: number | string;
-  market_id?: string | null;
+  market_id?: string;
   market?: {
-    question?: string | null;
+    question?: string;
   } | null;
-  outcome?: string | null;
-  maker?: string | null;
-  created_at?: string | null;
+  outcome?: string;
+  maker?: string;
+  created_at?: string;
 };
 
 type PolymarketApiResponse = {
   trades?: PolymarketTrade[];
 };
 
-type NormalizedTrade = {
-  marketId: string | null;
-  marketQuestion: string;
-  outcome: string;
-  amount: number;
-  trader: string | null;
-  createdAt: string;
-};
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const res = await fetch("https://gamma-api.polymarket.com/trades?limit=100", {
+    const response = await fetch("https://gamma-api.polymarket.com/trades?limit=100", {
       headers: { "Content-Type": "application/json" },
       next: { revalidate: 0 },
     });
 
-    if (!res.ok) {
-      return NextResponse.json({ error: "Polymarket API error" }, { status: res.status, headers: corsHeaders() });
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: "Failed to fetch from Polymarket" },
+        { status: response.status },
+      );
     }
 
-    const data = (await res.json()) as PolymarketApiResponse;
+    const data = (await response.json()) as PolymarketApiResponse;
+    if (!data.trades) {
+      return NextResponse.json({ error: "Invalid response structure" }, { status: 500 });
+    }
 
-    const trades = (data.trades ?? [])
-      .map<NormalizedTrade>((trade) => ({
-        marketId: trade.market_id ?? null,
+    const filtered = data.trades
+      .filter((trade) => Number(trade.amount_usdc) > 799)
+      .slice(0, 100)
+      .map((trade) => ({
+        marketId: trade.market_id,
         marketQuestion: trade.market?.question ?? "Unknown market",
-        outcome: trade.outcome ?? "Unknown",
-        amount: Number(trade.amount_usdc ?? 0),
-        trader: trade.maker ?? null,
-        createdAt: trade.created_at ?? new Date().toISOString(),
-      }))
-      .filter((trade) => Number.isFinite(trade.amount) && trade.amount > 799)
-      .slice(0, 100);
+        outcome: trade.outcome,
+        amount: Number(trade.amount_usdc),
+        trader: trade.maker,
+        createdAt: trade.created_at,
+      }));
 
-    return NextResponse.json({ trades }, { status: 200, headers: corsHeaders() });
-  } catch (err) {
-    console.error("Error fetching Polymarket trades:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500, headers: corsHeaders() });
+    return NextResponse.json(
+      { trades: filtered },
+      {
+        status: 200,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+        },
+      },
+    );
+  } catch (err: unknown) {
+    console.error("API error:", err);
+    return NextResponse.json({ error: "Server crashed while fetching Polymarket" }, { status: 500 });
   }
-}
-
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-  } satisfies Record<string, string>;
 }
