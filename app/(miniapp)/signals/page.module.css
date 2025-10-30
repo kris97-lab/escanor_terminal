@@ -1,0 +1,128 @@
+.page {
+  gap: 2rem;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.title {
+  font-size: 1.9rem;
+  font-weight: 700;
+}
+
+.subtitle {
+  color: rgba(245, 245, 245, 0.7);
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
+.signalList {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.signalCard {
+  background: rgba(12, 12, 12, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 1rem;
+  padding: 1.1rem 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.signalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.pair {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.direction {
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.signalGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(245, 245, 245, 0.6);
+}
+
+.value {
+  font-family: var(--font-source-code-pro), monospace;
+  font-size: 0.95rem;
+  color: #ffffff;
+}
+
+.confidence {
+  font-family: var(--font-source-code-pro), monospace;
+  font-size: 0.95rem;
+  color: rgba(248, 255, 42, 0.85);
+}
+
+.timeframe {
+  font-size: 0.75rem;
+  color: rgba(245, 245, 245, 0.65);
+}
+
+.automationGrid {
+  display: grid;
+  gap: 1rem;
+}
+
+.automationCard {
+  background: rgba(12, 12, 12, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.9rem;
+  padding: 1.1rem 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.automationLabel {
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.automationDescription {
+  color: rgba(245, 245, 245, 0.72);
+  line-height: 1.5;
+  font-size: 0.9rem;
+}
+
+@media (min-width: 768px) {
+  .title {
+    font-size: 2.3rem;
+  }
+
+  .subtitle {
+    font-size: 1.05rem;
+  }
+
+  .automationGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

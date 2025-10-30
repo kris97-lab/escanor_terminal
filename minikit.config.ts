@@ -1,6 +1,8 @@
 const ROOT_URL =
   process.env.NEXT_PUBLIC_URL ||
-  (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:3000');
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : "http://localhost:3000");
 
 /**
  * MiniApp configuration object. Must follow the Farcaster MiniApp specification.
@@ -11,13 +13,13 @@ export const minikitConfig = {
   accountAssociation: {
     header: "",
     payload: "",
-    signature: ""
+    signature: "",
   },
   miniapp: {
     version: "1",
-    name: "Cubey", 
-    subtitle: "Your AI Ad Companion", 
-    description: "Ads",
+    name: "Escanor Terminal",
+    subtitle: "Real-time deal and signal terminal",
+    description: "Real-time terminal of trades and market signals for Farcaster power users.",
     screenshotUrls: [`${ROOT_URL}/screenshot-portrait.png`],
     iconUrl: `${ROOT_URL}/blue-icon.png`,
     splashImageUrl: `${ROOT_URL}/blue-hero.png`,
@@ -25,11 +27,11 @@ export const minikitConfig = {
     homeUrl: ROOT_URL,
     webhookUrl: `${ROOT_URL}/api/webhook`,
     primaryCategory: "social",
-    tags: ["marketing", "ads", "quickstart", "waitlist"],
-    heroImageUrl: `${ROOT_URL}/blue-hero.png`, 
-    tagline: "",
-    ogTitle: "",
-    ogDescription: "",
+    tags: ["trading", "signals", "terminal", "farcaster"],
+    heroImageUrl: `${ROOT_URL}/blue-hero.png`,
+    tagline: "Real-time trades & alpha in your pocket.",
+    ogTitle: "Escanor Terminal",
+    ogDescription: "Real-time Farcaster MiniApp for monitoring market-moving traders and signals.",
     ogImageUrl: `${ROOT_URL}/blue-hero.png`,
   },
 } as const;
