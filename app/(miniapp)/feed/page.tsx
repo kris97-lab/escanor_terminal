@@ -128,28 +128,28 @@ export default function FeedPage() {
             ? json.trades
             : [];
 
-        const processed = payload
-          .map((trade) => {
-            const timestamp = Date.parse(trade.ts);
-            if (Number.isNaN(timestamp)) {
-              return null;
-            }
+        const processed: ProcessedTrade[] = [];
 
-            const actor = typeof trade.id === "string" && trade.id.startsWith("0x") ? trade.id : null;
+        for (const trade of payload) {
+          const timestamp = Date.parse(trade.ts);
+          if (Number.isNaN(timestamp)) {
+            continue;
+          }
 
-            return {
-              id: trade.id,
-              timestamp,
-              market: trade.market,
-              outcome: trade.outcome,
-              amount: trade.amountUSD,
-              side: trade.side,
-              price: trade.price,
-              url: trade.url,
-              actor,
-            } satisfies ProcessedTrade;
-          })
-          .filter((trade): trade is ProcessedTrade => trade !== null);
+          const actor = typeof trade.id === "string" && trade.id.startsWith("0x") ? trade.id : null;
+
+          processed.push({
+            id: trade.id,
+            timestamp,
+            market: trade.market,
+            outcome: trade.outcome,
+            amount: trade.amountUSD,
+            side: trade.side,
+            price: trade.price,
+            url: trade.url,
+            actor,
+          });
+        }
 
         const ordered = processed.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100);
         const previous = tradesRef.current;
