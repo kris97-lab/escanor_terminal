@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface Trade {
   marketId: string;
@@ -15,6 +15,16 @@ interface Market {
   id: string;
   question: string;
   probability: number;
+}
+
+interface MarketsResponse {
+  markets?: MarketEntry[];
+}
+
+interface MarketEntry {
+  id: string;
+  question: string;
+  probability?: number | string | null;
 }
 
 interface Signal {
@@ -39,7 +49,12 @@ export default function SignalsPage() {
       const res = await fetch("/api/trades");
       if (!res.ok) throw new Error("API error");
       const data = await res.json();
-      setTrades(data.trades || []);
+      const payload: Trade[] = Array.isArray(data)
+        ? data
+        : Array.isArray((data as { trades?: Trade[] }).trades)
+          ? ((data as { trades?: Trade[] }).trades as Trade[])
+          : [];
+      setTrades(payload);
       setStatus("Connected ✅");
     } catch (err) {
       console.error(err);
@@ -52,13 +67,18 @@ export default function SignalsPage() {
     try {
       const res = await fetch("https://gamma-api.polymarket.com/markets");
       if (!res.ok) throw new Error("Markets API error");
-      const data = await res.json();
+      const data = (await res.json()) as MarketsResponse;
       const map: Record<string, Market> = {};
-      data.markets.forEach((m: any) => {
-        map[m.id] = {
-          id: m.id,
-          question: m.question,
-          probability: Number(m.probability) || 0.5,
+      data.markets?.forEach((market) => {
+        if (!market?.id) {
+          return;
+        }
+
+        const probability = Number(market.probability);
+        map[market.id] = {
+          id: market.id,
+          question: market.question ?? "Unknown market",
+          probability: Number.isFinite(probability) ? probability : 0.5,
         };
       });
       setMarkets(map);
@@ -87,7 +107,7 @@ export default function SignalsPage() {
       });
 
     const result: Signal[] = [];
-    for (const [key, group] of Object.entries(grouped)) {
+    for (const group of Object.values(grouped)) {
       const trader = group[0].trader;
       const marketId = group[0].marketId;
       const totalAmount = group.reduce((a, b) => a + b.amount, 0);
