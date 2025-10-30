@@ -17,12 +17,6 @@ interface Market {
   probability: number;
 }
 
-interface RawMarket {
-  id?: string;
-  question?: string;
-  probability?: number | string;
-}
-
 interface Signal {
   marketId: string;
   marketQuestion: string;
@@ -60,13 +54,11 @@ export default function SignalsPage() {
       if (!res.ok) throw new Error("Markets API error");
       const data = await res.json();
       const map: Record<string, Market> = {};
-      const list = Array.isArray(data?.markets) ? (data.markets as RawMarket[]) : [];
-      list.forEach((m) => {
-        if (!m?.id) return;
+      data.markets.forEach((m: any) => {
         map[m.id] = {
           id: m.id,
-          question: m.question ?? "Unknown market",
-          probability: Number(m.probability ?? 0.5) || 0.5,
+          question: m.question,
+          probability: Number(m.probability) || 0.5,
         };
       });
       setMarkets(map);
@@ -95,7 +87,7 @@ export default function SignalsPage() {
       });
 
     const result: Signal[] = [];
-    for (const group of Object.values(grouped)) {
+    for (const [key, group] of Object.entries(grouped)) {
       const trader = group[0].trader;
       const marketId = group[0].marketId;
       const totalAmount = group.reduce((a, b) => a + b.amount, 0);
