@@ -8,17 +8,14 @@ import localStyles from "./page.module.css";
 type ApiTrade = {
   tradeId: string;
   marketQuestion: string;
-  marketSlug: string | null;
   marketId: string | null;
   outcome: string;
   amount: number;
   trader: string | null;
   createdAt: string;
-  timestamp: number;
-  transactionHash: string | null;
 };
 
-type ProcessedTrade = ApiTrade;
+type ProcessedTrade = ApiTrade & { timestamp: number };
 
 type ConnectionState = "loading" | "connected" | "error";
 
@@ -38,16 +35,8 @@ const timeFormatter = new Intl.DateTimeFormat("en-GB", {
 });
 
 function buildTradeUrl(trade: ApiTrade): string | null {
-  if (trade.marketSlug) {
-    return `https://polymarket.com/event/${trade.marketSlug}`;
-  }
-
   if (trade.marketId) {
     return `https://polymarket.com/market/${trade.marketId}`;
-  }
-
-  if (trade.transactionHash) {
-    return `https://polygonscan.com/tx/${trade.transactionHash}`;
   }
 
   return null;
@@ -125,11 +114,12 @@ export default function FeedPage() {
         const processed = Array.isArray(json.trades)
           ? json.trades
               .map((trade) => {
-                if (typeof trade.timestamp !== "number" || !Number.isFinite(trade.timestamp)) {
+                const timestamp = Date.parse(trade.createdAt);
+                if (Number.isNaN(timestamp)) {
                   return null;
                 }
 
-                return trade as ProcessedTrade;
+                return { ...trade, timestamp } satisfies ProcessedTrade;
               })
               .filter((trade): trade is ProcessedTrade => trade !== null)
           : [];
@@ -174,10 +164,10 @@ export default function FeedPage() {
 
   const statusText =
     connection === "connected"
-      ? "Connected ✅"
+      ? "🟢 Connected"
       : connection === "error"
-        ? "Reconnecting…"
-        : "Connecting…";
+        ? "🔴 Reconnecting…"
+        : "🟡 Connecting…";
 
   const lastUpdatedLabel = lastUpdated ? timeFormatter.format(lastUpdated) : null;
 
@@ -245,12 +235,10 @@ export default function FeedPage() {
             );
           })}
 
-          {connection === "connected" && trades.length === 0 ? (
-            <div className={localStyles.emptyState}>Waiting for new trades…</div>
-          ) : null}
-
-          {connection === "error" && trades.length === 0 ? (
-            <div className={localStyles.emptyState}>Reconnecting…</div>
+          {trades.length === 0 ? (
+            <div className={localStyles.emptyState}>
+              {connection === "error" ? "Reconnecting…" : "No trades yet…"}
+            </div>
           ) : null}
         </div>
       </section>
