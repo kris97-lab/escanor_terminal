@@ -6,7 +6,6 @@ import styles from "../layout.module.css";
 import localStyles from "./page.module.css";
 
 type ApiTrade = {
-  tradeId: string;
   marketQuestion: string;
   marketId: string | null;
   outcome: string;
@@ -15,7 +14,7 @@ type ApiTrade = {
   createdAt: string;
 };
 
-type ProcessedTrade = ApiTrade & { timestamp: number };
+type ProcessedTrade = ApiTrade & { timestamp: number; id: string };
 
 type ConnectionState = "loading" | "connected" | "error";
 
@@ -60,8 +59,8 @@ function useTradeRecorder(trades: ProcessedTrade[]) {
       return;
     }
 
-    const existing = new Set(ledgerRef.current.map((trade) => trade.tradeId));
-    const additions = trades.filter((trade) => !existing.has(trade.tradeId));
+    const existing = new Set(ledgerRef.current.map((trade) => trade.id));
+    const additions = trades.filter((trade) => !existing.has(trade.id));
 
     if (additions.length > 0) {
       ledgerRef.current = [...additions, ...ledgerRef.current].slice(0, 5000);
@@ -119,15 +118,25 @@ export default function FeedPage() {
                   return null;
                 }
 
-                return { ...trade, timestamp } satisfies ProcessedTrade;
+                const id = [
+                  trade.marketId ?? "unknown",
+                  trade.createdAt,
+                  trade.trader ?? "anon",
+                  trade.outcome,
+                  trade.amount,
+                ]
+                  .map(String)
+                  .join("|");
+
+                return { ...trade, timestamp, id } satisfies ProcessedTrade;
               })
               .filter((trade): trade is ProcessedTrade => trade !== null)
           : [];
 
         const ordered = processed.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100);
         const previous = tradesRef.current;
-        const previousIds = new Set(previous.map((trade) => trade.tradeId));
-        const newTradeIds = ordered.filter((trade) => !previousIds.has(trade.tradeId)).map((trade) => trade.tradeId);
+        const previousIds = new Set(previous.map((trade) => trade.id));
+        const newTradeIds = ordered.filter((trade) => !previousIds.has(trade.id)).map((trade) => trade.id);
 
         tradesRef.current = ordered;
         setTrades(ordered);
@@ -192,9 +201,11 @@ export default function FeedPage() {
 
         <div className={localStyles.feed}>
           {trades.map((trade) => {
-            const isNew = pulseIds.includes(trade.tradeId);
+            const isNew = pulseIds.includes(trade.id);
             const isWhale = trade.amount >= 10_000;
             const tradeUrl = buildTradeUrl(trade);
+            const marketLabel = trade.marketQuestion || "Unknown market";
+            const outcomeLabel = trade.outcome || "Unknown";
             const entryClassNames = [
               localStyles.entry,
               isWhale ? localStyles.hugeTrade : localStyles.standardTrade,
@@ -206,9 +217,9 @@ export default function FeedPage() {
             const content = (
               <article className={entryClassNames}>
                 <div className={localStyles.summary}>
-                  <span className={localStyles.market}>{trade.marketQuestion}</span>
+                  <span className={localStyles.market}>{marketLabel}</span>
                   <span className={localStyles.arrow}>→</span>
-                  <span className={localStyles.outcome}>{trade.outcome}</span>
+                  <span className={localStyles.outcome}>{outcomeLabel}</span>
                   <span className={localStyles.amount}>({formatter.format(trade.amount)})</span>
                 </div>
                 <div className={localStyles.meta}>
@@ -220,7 +231,7 @@ export default function FeedPage() {
 
             return tradeUrl ? (
               <a
-                key={trade.tradeId}
+                key={trade.id}
                 href={tradeUrl}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -229,7 +240,7 @@ export default function FeedPage() {
                 {content}
               </a>
             ) : (
-              <div key={trade.tradeId} className={localStyles.entryWrapper}>
+              <div key={trade.id} className={localStyles.entryWrapper}>
                 {content}
               </div>
             );
