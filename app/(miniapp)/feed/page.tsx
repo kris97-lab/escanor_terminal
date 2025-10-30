@@ -6,15 +6,27 @@ import styles from "../layout.module.css";
 import localStyles from "./page.module.css";
 
 type ApiTrade = {
-  marketQuestion: string;
-  marketId: string | null;
-  outcome: string;
-  amount: number;
-  trader: string | null;
-  createdAt: string;
+  id: string;
+  ts: string;
+  side: "BUY" | "SELL";
+  amountUSD: number;
+  price?: number;
+  outcome?: string;
+  market: string;
+  url?: string;
 };
 
-type ProcessedTrade = ApiTrade & { timestamp: number; id: string };
+type ProcessedTrade = {
+  id: string;
+  timestamp: number;
+  market: string;
+  outcome?: string;
+  amount: number;
+  side: "BUY" | "SELL";
+  price?: number;
+  url?: string;
+  actor: string | null;
+};
 
 type ConnectionState = "loading" | "connected" | "error";
 
@@ -33,9 +45,9 @@ const timeFormatter = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
-function buildTradeUrl(trade: ApiTrade): string | null {
-  if (trade.marketId) {
-    return `https://polymarket.com/market/${trade.marketId}`;
+function buildTradeUrl(trade: ProcessedTrade): string | null {
+  if (trade.url) {
+    return trade.url;
   }
 
   return null;
@@ -105,33 +117,39 @@ export default function FeedPage() {
           throw new Error(`Request failed with status ${response.status}`);
         }
 
-        const json = (await response.json()) as { trades?: ApiTrade[] };
+        const json = (await response.json()) as ApiTrade[] | { trades?: ApiTrade[] };
         if (!isMounted) {
           return;
         }
 
-        const processed = Array.isArray(json.trades)
-          ? json.trades
-              .map((trade) => {
-                const timestamp = Date.parse(trade.createdAt);
-                if (Number.isNaN(timestamp)) {
-                  return null;
-                }
+        const payload = Array.isArray(json)
+          ? json
+          : "trades" in json && Array.isArray(json.trades)
+            ? json.trades
+            : [];
 
-                const id = [
-                  trade.marketId ?? "unknown",
-                  trade.createdAt,
-                  trade.trader ?? "anon",
-                  trade.outcome,
-                  trade.amount,
-                ]
-                  .map(String)
-                  .join("|");
+        const processed = payload
+          .map((trade) => {
+            const timestamp = Date.parse(trade.ts);
+            if (Number.isNaN(timestamp)) {
+              return null;
+            }
 
-                return { ...trade, timestamp, id } satisfies ProcessedTrade;
-              })
-              .filter((trade): trade is ProcessedTrade => trade !== null)
-          : [];
+            const actor = typeof trade.id === "string" && trade.id.startsWith("0x") ? trade.id : null;
+
+            return {
+              id: trade.id,
+              timestamp,
+              market: trade.market,
+              outcome: trade.outcome,
+              amount: trade.amountUSD,
+              side: trade.side,
+              price: trade.price,
+              url: trade.url,
+              actor,
+            } satisfies ProcessedTrade;
+          })
+          .filter((trade): trade is ProcessedTrade => trade !== null);
 
         const ordered = processed.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100);
         const previous = tradesRef.current;
@@ -204,7 +222,7 @@ export default function FeedPage() {
             const isNew = pulseIds.includes(trade.id);
             const isWhale = trade.amount >= 10_000;
             const tradeUrl = buildTradeUrl(trade);
-            const marketLabel = trade.marketQuestion || "Unknown market";
+            const marketLabel = trade.market || "Unknown market";
             const outcomeLabel = trade.outcome || "Unknown";
             const entryClassNames = [
               localStyles.entry,
@@ -224,7 +242,9 @@ export default function FeedPage() {
                 </div>
                 <div className={localStyles.meta}>
                   <span className={localStyles.time}>{timeFormatter.format(trade.timestamp)}</span>
-                  <span className={localStyles.trader}>{shortAddress(trade.trader)}</span>
+                  <span className={localStyles.trader}>
+                    {trade.actor ? shortAddress(trade.actor) : trade.side}
+                  </span>
                 </div>
               </article>
             );
