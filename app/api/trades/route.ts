@@ -12,22 +12,56 @@ type StructuredTrade = {
   amount: number;
   trader: string | null;
   createdAt: string;
+  timestamp: number;
   tradeId: string;
   transactionHash: string | null;
 };
 
-function parseAmount(raw: RawTrade): number {
-  const candidate = raw.amount_usdc ?? raw.amount ?? raw.value ?? raw.usdcAmount;
-  if (typeof candidate === "number") {
-    return candidate;
+function parseAmount(raw: RawTrade): number | null {
+  const sources: unknown[] = [
+    raw.amount_usdc,
+    raw.amount,
+    raw.value,
+    raw.usdcAmount,
+    raw.total,
+    raw.total_cost,
+    raw.totalCost,
+    raw.cost,
+    raw.notional,
+    raw.tradeSize,
+    raw.size,
+  ];
+
+  for (const candidate of sources) {
+    const parsed = coerceNumber(candidate);
+    if (parsed !== null) {
+      return parsed;
+    }
   }
-  if (typeof candidate === "string" && candidate.trim().length > 0) {
-    const parsed = Number(candidate);
+
+  const price = coerceNumber(raw.price);
+  const quantity = coerceNumber(raw.quantity ?? raw.amount_shares ?? raw.shares);
+
+  if (price !== null && quantity !== null) {
+    return price * quantity;
+  }
+
+  return null;
+}
+
+function coerceNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
     if (!Number.isNaN(parsed)) {
       return parsed;
     }
   }
-  return 0;
+
+  return null;
 }
 
 function coerceString(value: unknown): string | null {
@@ -37,24 +71,49 @@ function coerceString(value: unknown): string | null {
   return null;
 }
 
+function parseTimestamp(raw: RawTrade): number | null {
+  const candidates: unknown[] = [
+    raw.timestamp,
+    raw.blockTimestamp,
+    raw.block_time,
+    raw.created_at,
+    raw.createdAt,
+    raw.block_time_ms,
+    raw.time,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      if (candidate > 10_000_000_000) {
+        return candidate;
+      }
+      return candidate * 1000;
+    }
+
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      const parsed = Date.parse(candidate);
+      if (!Number.isNaN(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+}
+
 function parseTrade(raw: RawTrade): StructuredTrade | null {
   const tradeId = coerceString(raw.id) ?? coerceString(raw.trade_id) ?? coerceString(raw.txid);
   if (!tradeId) {
     return null;
   }
 
-  const createdAt =
-    coerceString(raw.created_at) ??
-    coerceString(raw.createdAt) ??
-    coerceString(raw.timestamp) ??
-    coerceString(raw.blockTimestamp);
-
-  if (!createdAt) {
+  const timestamp = parseTimestamp(raw);
+  if (timestamp === null) {
     return null;
   }
 
   const amount = parseAmount(raw);
-  if (Number.isNaN(amount) || amount <= 799) {
+  if (amount === null || Number.isNaN(amount)) {
     return null;
   }
 
@@ -83,9 +142,12 @@ function parseTrade(raw: RawTrade): StructuredTrade | null {
     coerceString(raw.marketOutcome) ??
     "Unknown";
 
+  const createdAt = new Date(timestamp).toISOString();
+
   return {
     tradeId,
     createdAt,
+    timestamp,
     amount,
     marketId: coerceString(raw.marketId) ?? coerceString(raw.market_id) ?? null,
     marketSlug,
@@ -148,12 +210,15 @@ function normalizeTrades(payload: unknown): StructuredTrade[] {
     ? payload
     : Array.isArray((payload as RawTrade | undefined)?.data)
       ? ((payload as RawTrade).data as RawTrade[])
-      : [];
+      : Array.isArray((payload as RawTrade | undefined)?.trades)
+        ? ((payload as RawTrade).trades as RawTrade[])
+        : [];
 
   return trades
     .map((entry) => (typeof entry === "object" && entry !== null ? parseTrade(entry as RawTrade) : null))
     .filter((trade): trade is StructuredTrade => trade !== null)
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .filter((trade) => trade.amount > 799)
+    .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 100);
 }
 
@@ -172,6 +237,12 @@ function corsHeaders() {
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
   } satisfies Record<string, string>;
+}
+
+export function OPTIONS() {
+  return NextResponse.json(null, {
+    headers: corsHeaders(),
+  });
 }
 
 function resolveSlug(candidates: Array<string | null>): string | null {
@@ -196,8 +267,4 @@ function resolveSlug(candidates: Array<string | null>): string | null {
   }
 
   return null;
-}
-
-export async function OPTIONS() {
-  return NextResponse.json(null, { headers: corsHeaders() });
 }

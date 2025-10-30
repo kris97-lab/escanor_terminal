@@ -14,10 +14,11 @@ type ApiTrade = {
   amount: number;
   trader: string | null;
   createdAt: string;
+  timestamp: number;
   transactionHash: string | null;
 };
 
-type ProcessedTrade = ApiTrade & { timestamp: number };
+type ProcessedTrade = ApiTrade;
 
 type ConnectionState = "loading" | "connected" | "error";
 
@@ -124,12 +125,11 @@ export default function FeedPage() {
         const processed = Array.isArray(json.trades)
           ? json.trades
               .map((trade) => {
-                const timestamp = Date.parse(trade.createdAt);
-                if (Number.isNaN(timestamp)) {
+                if (typeof trade.timestamp !== "number" || !Number.isFinite(trade.timestamp)) {
                   return null;
                 }
 
-                return { ...trade, timestamp } satisfies ProcessedTrade;
+                return trade as ProcessedTrade;
               })
               .filter((trade): trade is ProcessedTrade => trade !== null)
           : [];
