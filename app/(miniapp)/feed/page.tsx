@@ -181,7 +181,8 @@ function transformTrades(payload: unknown): ProcessedTrade[] {
         url: buildTradeUrl(rawTrade),
       } satisfies ProcessedTrade;
     })
-    .filter((trade): trade is ProcessedTrade => Boolean(trade) && trade.amount > 799)
+    .filter((trade): trade is ProcessedTrade => Boolean(trade))
+    .filter((trade) => trade.amount > 799)
     .sort((a, b) => b.timestamp - a.timestamp);
 }
 
