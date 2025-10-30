@@ -22,6 +22,7 @@ type Trade = {
   price?: number;
   outcome?: string;
   market: string;
+  marketId: string;
   url?: string;
 };
 
@@ -59,6 +60,14 @@ async function fetchPolymarketTrades(minUSD = 800, limit = 150): Promise<Trade[]
     if (x.slug) url = `https://polymarket.com/market/${x.slug}`;
     else if (x.eventSlug) url = `https://polymarket.com/event/${x.eventSlug}`;
 
+    const marketId =
+      x.conditionId ||
+      x.asset ||
+      x.slug ||
+      x.eventSlug ||
+      (x.transactionHash ? `${x.transactionHash}-market` : undefined) ||
+      "unknown-market";
+
     return {
       id: x.transactionHash || `${x.conditionId || "cond"}-${x.timestamp}`,
       ts: tsToIso(Number(x.timestamp)),
@@ -67,6 +76,7 @@ async function fetchPolymarketTrades(minUSD = 800, limit = 150): Promise<Trade[]
       price,
       outcome: x.outcome,
       market: x.title || x.asset || "Unknown market",
+      marketId,
       url,
     };
   });

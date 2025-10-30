@@ -1,5 +1,8 @@
 .page {
-  gap: 2rem;
+  gap: 1.75rem;
+  background: #050505;
+  color: #f8f8f8;
+  font-family: var(--font-source-code-pro), var(--font-inter), monospace;
 }
 
 .header {
@@ -8,109 +11,168 @@
   gap: 0.75rem;
 }
 
+.kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+  color: rgba(248, 248, 248, 0.65);
+}
+
 .title {
   font-size: 1.9rem;
   font-weight: 700;
+  color: #fdfdfd;
 }
 
 .subtitle {
-  color: rgba(245, 245, 245, 0.7);
+  color: rgba(248, 248, 248, 0.75);
   line-height: 1.6;
   font-size: 0.95rem;
+  max-width: 42rem;
 }
 
-.signalList {
+.statusBar {
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.signalCard {
-  background: rgba(12, 12, 12, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 1rem;
-  padding: 1.1rem 1.3rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-}
-
-.signalHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-
-.pair {
-  font-weight: 600;
-  font-size: 1.05rem;
-}
-
-.direction {
+  align-items: center;
+  gap: 0.75rem;
   font-size: 0.85rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+
+.statusIndicator {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+  box-shadow: 0 0 12px rgba(248, 255, 42, 0.45);
+}
+
+.loading {
+  background: linear-gradient(135deg, rgba(255, 248, 42, 0.8), rgba(255, 248, 42, 0.4));
+}
+
+.connected {
+  background: linear-gradient(135deg, rgba(70, 255, 160, 0.9), rgba(30, 180, 120, 0.7));
+  box-shadow: 0 0 14px rgba(70, 255, 160, 0.55);
+}
+
+.error {
+  background: linear-gradient(135deg, rgba(255, 80, 80, 0.9), rgba(189, 34, 34, 0.7));
+  box-shadow: 0 0 14px rgba(255, 80, 80, 0.55);
+}
+
+.statusText {
+  font-weight: 600;
+  color: rgba(248, 248, 248, 0.85);
+}
+
+.empty {
+  border: 1px dashed rgba(255, 248, 42, 0.35);
+  border-radius: 1rem;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  font-size: 0.95rem;
+  color: rgba(248, 248, 248, 0.65);
+  background: rgba(12, 12, 12, 0.6);
+  backdrop-filter: blur(18px);
+  animation: fadeIn 0.5s ease;
 }
 
 .signalGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 1.25rem;
 }
 
-.label {
-  display: block;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(245, 245, 245, 0.6);
-}
-
-.value {
-  font-family: var(--font-source-code-pro), monospace;
-  font-size: 0.95rem;
-  color: #ffffff;
-}
-
-.confidence {
-  font-family: var(--font-source-code-pro), monospace;
-  font-size: 0.95rem;
-  color: rgba(248, 255, 42, 0.85);
-}
-
-.timeframe {
-  font-size: 0.75rem;
-  color: rgba(245, 245, 245, 0.65);
-}
-
-.automationGrid {
-  display: grid;
-  gap: 1rem;
-}
-
-.automationCard {
-  background: rgba(12, 12, 12, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 0.9rem;
-  padding: 1.1rem 1.3rem;
+.signalCard {
+  position: relative;
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 248, 42, 0.35);
+  background: radial-gradient(circle at top left, rgba(255, 248, 42, 0.12), transparent 55%), rgba(8, 8, 8, 0.95);
+  padding: 1.4rem 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 1rem;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  animation: fadeIn 0.45s ease;
 }
 
-.automationLabel {
-  font-weight: 600;
-  letter-spacing: 0.08em;
+.signalCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 32px rgba(255, 248, 42, 0.35);
+  border-color: rgba(255, 248, 42, 0.5);
+}
+
+.highlight {
+  box-shadow: 0 0 36px rgba(255, 248, 42, 0.6);
+  border-color: rgba(255, 248, 42, 0.7);
+}
+
+.cardHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.marketLabel {
+  font-size: 0.75rem;
   text-transform: uppercase;
-  color: var(--accent);
-  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  color: rgba(248, 248, 248, 0.6);
 }
 
-.automationDescription {
-  color: rgba(245, 245, 245, 0.72);
-  line-height: 1.5;
-  font-size: 0.9rem;
+.market {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #fdfdfd;
+}
+
+.cardBody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem 1.25rem;
+}
+
+.detailRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.detailLabel {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(248, 248, 248, 0.55);
+}
+
+.detailValue {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(248, 248, 248, 0.9);
+}
+
+.outcomeYes {
+  color: #5bff9d;
+  text-shadow: 0 0 16px rgba(91, 255, 157, 0.6);
+}
+
+.outcomeNo {
+  color: #ff6b6b;
+  text-shadow: 0 0 16px rgba(255, 107, 107, 0.5);
+}
+
+.outcomeNeutral {
+  color: rgba(248, 248, 248, 0.85);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (min-width: 768px) {
@@ -122,7 +184,13 @@
     font-size: 1.05rem;
   }
 
-  .automationGrid {
+  .signalGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .signalGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
