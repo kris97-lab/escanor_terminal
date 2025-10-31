@@ -13,6 +13,8 @@ export async function GET() {
       outcome: trade.outcome ?? "Unknown",
       amount: trade.amountUSD,
       marketSlug: trade.slug ?? null,
+      maker: trade.maker ?? null,
+      timestamp: trade.ts,
     }));
 
     return NextResponse.json(summary);

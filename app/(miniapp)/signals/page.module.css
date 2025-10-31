@@ -65,6 +65,11 @@
   color: rgba(248, 248, 248, 0.85);
 }
 
+.errorText {
+  font-size: 0.8rem;
+  color: #ff6b6b;
+}
+
 .empty {
   border: 1px dashed rgba(255, 248, 42, 0.35);
   border-radius: 1rem;
