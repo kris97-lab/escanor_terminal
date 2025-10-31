@@ -20,7 +20,8 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "recharts": ["./lib/recharts"]
+      "recharts": ["./lib/recharts"],
+      "@coingecko/coingecko-typescript": ["./lib/vendor/coingecko-typescript"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
 import fallbackSnapshot from "@/data/btc-fallback.json";
+import {
+  CoinGeckoClient,
+  type CoinIdMarketChartResponse,
+} from "@coingecko/coingecko-typescript";
 
 type CoinGeckoPriceEntry = [number, number];
-
-type CoinGeckoResponse = {
-  prices?: CoinGeckoPriceEntry[];
-};
 
 type NormalisedPricePoint = {
   timestamp: number;
@@ -18,8 +18,21 @@ type FallbackSnapshot = {
   prices?: NormalisedPricePoint[];
 };
 
-const COINGECKO_URL =
-  "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1&interval=hourly";
+type ApiSource = "live" | "cache" | "fallback";
+
+type CacheRecord = {
+  prices: NormalisedPricePoint[];
+  fetchedAt: number;
+  source: Exclude<ApiSource, "cache">;
+};
+
+const CACHE_TTL_MS = 60_000;
+
+const client = new CoinGeckoClient({
+  apiKey: process.env.COINGECKO_API_KEY,
+});
+
+let cache: CacheRecord | null = null;
 
 function normaliseEntries(entries: CoinGeckoPriceEntry[] | undefined): NormalisedPricePoint[] {
   if (!entries) {
@@ -80,44 +93,87 @@ function normaliseFallback(data: FallbackSnapshot): NormalisedPricePoint[] {
     .filter((point): point is NormalisedPricePoint => point !== null);
 }
 
+async function fetchLivePrices(): Promise<NormalisedPricePoint[]> {
+  const response: CoinIdMarketChartResponse = await client.coinIdMarketChart({
+    id: "bitcoin",
+    vs_currency: "usd",
+    days: 1,
+    interval: "hourly",
+  });
+
+  return normaliseEntries(Array.isArray(response.prices) ? response.prices : undefined);
+}
+
+function buildCacheResponse(
+  record: CacheRecord,
+  sourceOverride?: ApiSource,
+  errors?: string[],
+) {
+  return NextResponse.json(
+    {
+      prices: record.prices,
+      source: sourceOverride ?? record.source,
+      fetchedAt: record.fetchedAt,
+      errors,
+    },
+    { status: 200 },
+  );
+}
+
 export async function GET() {
+  const now = Date.now();
   const errors: string[] = [];
 
+  if (cache && cache.source === "live" && now - cache.fetchedAt < CACHE_TTL_MS) {
+    return buildCacheResponse(cache, "cache");
+  }
+
   try {
-    const res = await fetch(COINGECKO_URL, {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "EscanorTerminal/1.0 (+https://farcaster.miniapp)",
-      },
-    });
+    const prices = await fetchLivePrices();
 
-    if (!res.ok) {
-      errors.push(`CoinGecko returned ${res.status}`);
-    } else {
-      const data = (await res.json()) as CoinGeckoResponse;
-      const prices = normaliseEntries(Array.isArray(data.prices) ? data.prices : undefined);
+    if (prices.length > 0) {
+      cache = {
+        prices,
+        fetchedAt: now,
+        source: "live",
+      } satisfies CacheRecord;
 
-      if (prices.length > 0) {
-        return NextResponse.json({ prices, source: "coingecko" as const }, { status: 200 });
-      }
-
-      errors.push("CoinGecko response missing price data");
+      return NextResponse.json(
+        {
+          prices,
+          source: "live" as ApiSource,
+          fetchedAt: now,
+        },
+        { status: 200 },
+      );
     }
+
+    errors.push("CoinGecko response missing price data");
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
+    const message = err instanceof Error ? err.message : "Unknown CoinGecko error";
     errors.push(message);
     console.error("BTC API error:", err);
+  }
+
+  if (cache) {
+    const source = cache.source === "live" ? "cache" : "fallback";
+    return buildCacheResponse(cache, source, errors);
   }
 
   const fallbackPrices = normaliseFallback(fallbackSnapshot as FallbackSnapshot);
 
   if (fallbackPrices.length > 0) {
+    cache = {
+      prices: fallbackPrices,
+      fetchedAt: now,
+      source: "fallback",
+    } satisfies CacheRecord;
+
     return NextResponse.json(
       {
         prices: fallbackPrices,
-        source: "fallback" as const,
-        warning: "Served cached BTC snapshot while CoinGecko was unavailable",
+        source: "fallback" as ApiSource,
+        fetchedAt: now,
         errors,
       },
       { status: 200 },

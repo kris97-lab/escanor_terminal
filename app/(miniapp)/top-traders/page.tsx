@@ -26,20 +26,20 @@ type ChartPoint = ApiPricePoint & {
   movingAverage: number;
 };
 
-type ApiSource = "coingecko" | "fallback";
+type ApiSource = "live" | "cache" | "fallback";
 
 type BtcApiResponse = {
   prices?: ApiPricePoint[];
   error?: string;
   source?: ApiSource;
-  warning?: string;
+  fetchedAt?: number;
   errors?: string[];
 };
 
 const MOVING_AVERAGE_WINDOW = 5;
 const CACHE_KEY = "degen-terminal-btc-cache-v1";
 
-type Status = "loading" | "connected" | "fallback" | "error";
+type Status = "loading" | ApiSource | "error";
 
 function isPricePoint(value: unknown): value is ApiPricePoint {
   if (!value || typeof value !== "object") {
@@ -90,9 +90,15 @@ function loadCachedSnapshot(): { prices: ApiPricePoint[]; source: ApiSource; fet
       return null;
     }
 
+    const source: ApiSource = parsed.source === "fallback"
+      ? "fallback"
+      : parsed.source === "cache"
+      ? "cache"
+      : "live";
+
     return {
       prices,
-      source: parsed.source === "fallback" ? "fallback" : "coingecko",
+      source,
       fetchedAt: typeof parsed.fetchedAt === "number" ? parsed.fetchedAt : null,
     };
   } catch (err) {
@@ -117,7 +123,7 @@ export default function TradePage() {
   const [prices, setPrices] = useState<ApiPricePoint[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const sourceRef = useRef<ApiSource | null>(null);
 
@@ -127,14 +133,16 @@ export default function TradePage() {
       sourceRef.current = cached.source;
       setPrices(cached.prices);
       setLastUpdated(cached.fetchedAt);
-      setStatus(cached.source === "fallback" ? "fallback" : "connected");
+      setStatus(cached.source);
+      setError(null);
+      setDiagnostics([]);
     }
 
     let cancelled = false;
 
     const load = async () => {
       try {
-        setStatus((prev) => (prev === "connected" || prev === "fallback" ? "loading" : prev));
+        setStatus((prev) => (prev === "live" || prev === "cache" || prev === "fallback" ? "loading" : prev));
 
         const response = await fetch("/api/btc", { cache: "no-store" });
         const payload = (await response.json()) as BtcApiResponse;
@@ -155,14 +163,14 @@ export default function TradePage() {
           return;
         }
 
-        const source: ApiSource = payload.source === "fallback" ? "fallback" : "coingecko";
-        const fetchedAt = Date.now();
+        const source: ApiSource = payload.source ?? "live";
+        const fetchedAt = typeof payload.fetchedAt === "number" ? payload.fetchedAt : Date.now();
 
         sourceRef.current = source;
         setPrices(normalised);
-        setStatus(source === "fallback" ? "fallback" : "connected");
+        setStatus(source);
         setError(null);
-        setWarning(payload.warning ?? null);
+        setDiagnostics(Array.isArray(payload.errors) ? payload.errors : []);
         setLastUpdated(fetchedAt);
         saveCachedSnapshot({ prices: normalised, source, fetchedAt });
       } catch (err) {
@@ -172,10 +180,10 @@ export default function TradePage() {
 
         const message = err instanceof Error ? err.message : "Unknown error";
         setError(message);
-        setWarning(null);
+        setDiagnostics([message]);
         setStatus((prev) => {
           if (sourceRef.current) {
-            return sourceRef.current === "fallback" ? "fallback" : "connected";
+            return sourceRef.current;
           }
 
           return prev === "loading" ? "error" : prev;
@@ -213,19 +221,23 @@ export default function TradePage() {
   const currentPrice = latestPoint?.price;
   const movingAverage = latestPoint?.movingAverage;
   const statusColor =
-    status === "connected"
+    status === "live"
       ? "#4ade80"
-      : status === "fallback"
+      : status === "cache"
       ? "#facc15"
+      : status === "fallback"
+      ? "#fbbf24"
       : status === "error"
       ? "#f87171"
       : "#facc15";
 
   const statusLabel =
-    status === "connected"
-      ? "Connected to CoinGecko"
+    status === "live"
+      ? "Live data from CoinGecko"
+      : status === "cache"
+      ? "Serving cached CoinGecko data"
       : status === "fallback"
-      ? "Showing cached BTC snapshot"
+      ? "Offline BTC snapshot"
       : status === "error"
       ? "Reconnecting…"
       : "Updating feed…";
@@ -269,8 +281,13 @@ export default function TradePage() {
           </div>
         </div>
 
-        {warning && <div className={styles.notice}>{warning}</div>}
         {error && <div className={styles.error}>Failed to refresh BTC market data: {error}</div>}
+        {status !== "live" && diagnostics.length > 0 && (
+          <div className={styles.notice}>
+            {diagnostics[0]}
+            {diagnostics.length > 1 && <span> (see console for details)</span>}
+          </div>
+        )}
 
         {!hasChartData && status === "loading" && (
           <div className={styles.loading}>Loading BTC market data…</div>
