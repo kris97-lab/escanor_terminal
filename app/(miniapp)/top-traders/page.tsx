@@ -16,45 +16,23 @@ import { Button } from "@/components/ui/button";
 import layoutStyles from "../layout.module.css";
 import styles from "./page.module.css";
 
-type ApiPricePoint = {
+type PricePoint = {
+  timestamp: number;
+  value: number;
+};
+
+type ChartPoint = {
   timestamp: number;
   time: string;
   price: number;
-};
-
-type ChartPoint = ApiPricePoint & {
   movingAverage: number;
 };
 
-type ApiSource = "live" | "cache" | "fallback";
+type Status = "loading" | "live" | "cache" | "error";
 
-type BtcApiResponse = {
-  prices?: ApiPricePoint[];
-  error?: string;
-  source?: ApiSource;
-  fetchedAt?: number;
-  errors?: string[];
-};
-
-const MOVING_AVERAGE_WINDOW = 5;
-const CACHE_KEY = "degen-terminal-btc-cache-v1";
-
-type Status = "loading" | ApiSource | "error";
-
-function isPricePoint(value: unknown): value is ApiPricePoint {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.time === "string" &&
-    typeof record.timestamp === "number" &&
-    Number.isFinite(record.timestamp) &&
-    typeof record.price === "number" &&
-    Number.isFinite(record.price)
-  );
-}
+const CACHE_KEY = "degen-terminal-pyth-btc-v1";
+const HISTORY_LIMIT = 12;
+const HOUR_MS = 3_600_000;
 
 function formatUsd(value?: number | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -67,7 +45,12 @@ function formatUsd(value?: number | null): string {
   })}`;
 }
 
-function loadCachedSnapshot(): { prices: ApiPricePoint[]; source: ApiSource; fetchedAt: number | null } | null {
+type CacheShape = {
+  history: PricePoint[];
+  lastUpdated: number | null;
+};
+
+function loadCachedHistory(): CacheShape | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -78,101 +61,126 @@ function loadCachedSnapshot(): { prices: ApiPricePoint[]; source: ApiSource; fet
       return null;
     }
 
-    const parsed = JSON.parse(raw) as {
-      prices?: ApiPricePoint[];
-      source?: ApiSource;
-      fetchedAt?: number;
+    const parsed = JSON.parse(raw) as Partial<CacheShape> & {
+      history?: Array<{ timestamp?: unknown; value?: unknown }>;
     };
 
-    const prices = Array.isArray(parsed.prices) ? parsed.prices.filter(isPricePoint) : [];
+    const history = Array.isArray(parsed.history)
+      ? parsed.history
+          .map((item) => {
+            const timestamp = typeof item.timestamp === "number" ? item.timestamp : Number(item.timestamp);
+            const value = typeof item.value === "number" ? item.value : Number(item.value);
+            if (!Number.isFinite(timestamp) || !Number.isFinite(value)) {
+              return null;
+            }
+            return { timestamp, value } satisfies PricePoint;
+          })
+          .filter((point): point is PricePoint => point !== null)
+          .sort((a, b) => a.timestamp - b.timestamp)
+          .slice(-HISTORY_LIMIT)
+      : [];
 
-    if (prices.length === 0) {
+    if (history.length === 0) {
       return null;
     }
 
-    const source: ApiSource = parsed.source === "fallback"
-      ? "fallback"
-      : parsed.source === "cache"
-      ? "cache"
-      : "live";
+    const lastUpdated =
+      typeof parsed.lastUpdated === "number" && Number.isFinite(parsed.lastUpdated)
+        ? parsed.lastUpdated
+        : history.at(-1)?.timestamp ?? null;
 
-    return {
-      prices,
-      source,
-      fetchedAt: typeof parsed.fetchedAt === "number" ? parsed.fetchedAt : null,
-    };
+    return { history, lastUpdated };
   } catch (err) {
-    console.error("Failed to parse cached BTC data", err);
+    console.error("Failed to load cached BTC history", err);
     return null;
   }
 }
 
-function saveCachedSnapshot(snapshot: { prices: ApiPricePoint[]; source: ApiSource; fetchedAt: number }): void {
+function saveCachedHistory(history: PricePoint[], lastUpdated: number | null): void {
   if (typeof window === "undefined") {
     return;
   }
 
+  if (history.length === 0 || lastUpdated === null) {
+    return;
+  }
+
   try {
-    window.localStorage.setItem(CACHE_KEY, JSON.stringify(snapshot));
+    window.localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ history, lastUpdated }),
+    );
   } catch (err) {
-    console.error("Failed to cache BTC data", err);
+    console.error("Failed to persist BTC history", err);
   }
 }
 
 export default function TradePage() {
-  const [prices, setPrices] = useState<ApiPricePoint[]>([]);
+  const [history, setHistory] = useState<PricePoint[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const sourceRef = useRef<ApiSource | null>(null);
+  const hasHistoryRef = useRef(false);
 
   useEffect(() => {
-    const cached = loadCachedSnapshot();
+    hasHistoryRef.current = history.length > 0;
+  }, [history]);
+
+  useEffect(() => {
+    const cached = loadCachedHistory();
     if (cached) {
-      sourceRef.current = cached.source;
-      setPrices(cached.prices);
-      setLastUpdated(cached.fetchedAt);
-      setStatus(cached.source);
+      setHistory(cached.history);
+      setLastUpdated(cached.lastUpdated);
+      setStatus("cache");
       setError(null);
-      setDiagnostics([]);
+      hasHistoryRef.current = true;
     }
 
     let cancelled = false;
 
     const load = async () => {
       try {
-        setStatus((prev) => (prev === "live" || prev === "cache" || prev === "fallback" ? "loading" : prev));
-
-        const response = await fetch("/api/btc", { cache: "no-store" });
-        const payload = (await response.json()) as BtcApiResponse;
-
-        if (!response.ok || payload.error) {
-          const message = payload.error ?? `CoinGecko API ${response.status}`;
-          throw new Error(message);
+        if (!cancelled) {
+          setStatus((prev) => (prev === "live" ? prev : "loading"));
         }
 
-        const rawPrices = Array.isArray(payload.prices) ? payload.prices : [];
-        const normalised = rawPrices.filter(isPricePoint);
-
-        if (normalised.length === 0) {
-          throw new Error("CoinGecko price data unavailable");
-        }
+        const response = await fetch("/api/pyth/btc", { cache: "no-store" });
+        const payload = (await response.json()) as {
+          price?: unknown;
+          timestamp?: unknown;
+          error?: string;
+        };
 
         if (cancelled) {
           return;
         }
 
-        const source: ApiSource = payload.source ?? "live";
-        const fetchedAt = typeof payload.fetchedAt === "number" ? payload.fetchedAt : Date.now();
+        if (
+          !response.ok ||
+          typeof payload.price !== "number" ||
+          !Number.isFinite(payload.price) ||
+          typeof payload.timestamp !== "number" ||
+          !Number.isFinite(payload.timestamp)
+        ) {
+          const message = payload.error ?? `Pyth API ${response.status}`;
+          throw new Error(message);
+        }
 
-        sourceRef.current = source;
-        setPrices(normalised);
-        setStatus(source);
+        let updatedHistory: PricePoint[] = [];
+        setHistory((prev) => {
+          const filtered = prev.filter((point) => point.timestamp !== payload.timestamp);
+          const candidate = [...filtered, { timestamp: payload.timestamp as number, value: payload.price as number }]
+            .sort((a, b) => a.timestamp - b.timestamp)
+            .slice(-HISTORY_LIMIT);
+          updatedHistory = candidate;
+          return candidate;
+        });
+
+        setLastUpdated(payload.timestamp);
+        setStatus("live");
         setError(null);
-        setDiagnostics(Array.isArray(payload.errors) ? payload.errors : []);
-        setLastUpdated(fetchedAt);
-        saveCachedSnapshot({ prices: normalised, source, fetchedAt });
+        hasHistoryRef.current = true;
+        saveCachedHistory(updatedHistory, payload.timestamp);
       } catch (err) {
         if (cancelled) {
           return;
@@ -180,19 +188,12 @@ export default function TradePage() {
 
         const message = err instanceof Error ? err.message : "Unknown error";
         setError(message);
-        setDiagnostics([message]);
-        setStatus((prev) => {
-          if (sourceRef.current) {
-            return sourceRef.current;
-          }
-
-          return prev === "loading" ? "error" : prev;
-        });
+        setStatus(hasHistoryRef.current ? "cache" : "error");
       }
     };
 
     void load();
-    const interval = window.setInterval(load, 60_000);
+    const interval = window.setInterval(load, HOUR_MS);
 
     return () => {
       cancelled = true;
@@ -200,44 +201,45 @@ export default function TradePage() {
     };
   }, []);
 
+  useEffect(() => {
+    saveCachedHistory(history, lastUpdated);
+  }, [history, lastUpdated]);
+
   const chartData = useMemo<ChartPoint[]>(() => {
-    if (prices.length === 0) {
+    if (history.length === 0) {
       return [];
     }
 
-    return prices.map((point, index, arr) => {
-      const start = Math.max(0, index - MOVING_AVERAGE_WINDOW + 1);
-      const slice = arr.slice(start, index + 1);
-      const average = slice.reduce((acc, item) => acc + item.price, 0) / Math.max(slice.length, 1);
-
+    return history.map((point, index, arr) => {
+      const slice = arr.slice(Math.max(0, index - HISTORY_LIMIT + 1), index + 1);
+      const movingAverage = slice.reduce((total, item) => total + item.value, 0) / Math.max(slice.length, 1);
       return {
-        ...point,
-        movingAverage: Number(average.toFixed(2)),
+        timestamp: point.timestamp,
+        time: new Date(point.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        price: point.value,
+        movingAverage,
       } satisfies ChartPoint;
     });
-  }, [prices]);
+  }, [history]);
 
   const latestPoint = chartData.at(-1);
-  const currentPrice = latestPoint?.price;
-  const movingAverage = latestPoint?.movingAverage;
+  const spotPrice = latestPoint?.price ?? null;
+  const movingAverage = latestPoint?.movingAverage ?? null;
+
   const statusColor =
     status === "live"
       ? "#4ade80"
       : status === "cache"
       ? "#facc15"
-      : status === "fallback"
-      ? "#fbbf24"
       : status === "error"
       ? "#f87171"
       : "#facc15";
 
   const statusLabel =
     status === "live"
-      ? "Live data from CoinGecko"
+      ? "Live data from Pyth Network"
       : status === "cache"
-      ? "Serving cached CoinGecko data"
-      : status === "fallback"
-      ? "Offline BTC snapshot"
+      ? "Showing cached Pyth data"
       : status === "error"
       ? "Reconnecting…"
       : "Updating feed…";
@@ -263,38 +265,30 @@ export default function TradePage() {
       <section className={`${layoutStyles.section} ${styles.chartCard}`}>
         <div className={styles.chartHeader}>
           <div className={styles.titleBlock}>
-            <span className={layoutStyles.badge}>BTC / USD Hourly · CoinGecko</span>
+            <span className={layoutStyles.badge}>BTC / USD Hourly · Pyth</span>
             <h1 className={styles.headline}>BTC Market Pulse</h1>
             <p className={styles.subtitle}>
-              Hourly outlook for Bitcoin powered by CoinGecko. Track spot price momentum with a rolling moving average overlay.
+              Hourly oracle updates sourced from Pyth Network with a rolling 12-hour moving average.
             </p>
           </div>
           <div className={styles.metricRow}>
             <div className={styles.metric}>
               <span className={styles.metricLabel}>Spot</span>
-              <span className={styles.metricValue}>{formatUsd(currentPrice)}</span>
+              <span className={styles.metricValue}>{formatUsd(spotPrice)}</span>
             </div>
             <div className={styles.metric}>
-              <span className={styles.metricLabel}>Moving Avg</span>
+              <span className={styles.metricLabel}>12h Moving Avg</span>
               <span className={styles.metricValue}>{formatUsd(movingAverage)}</span>
             </div>
           </div>
         </div>
 
-        {error && <div className={styles.error}>Failed to refresh BTC market data: {error}</div>}
-        {status !== "live" && diagnostics.length > 0 && (
-          <div className={styles.notice}>
-            {diagnostics[0]}
-            {diagnostics.length > 1 && <span> (see console for details)</span>}
-          </div>
+        {error && status === "error" && (
+          <div className={styles.error}>Failed to refresh BTC oracle data: {error}</div>
         )}
 
-        {!hasChartData && status === "loading" && (
-          <div className={styles.loading}>Loading BTC market data…</div>
-        )}
-
-        {!hasChartData && status !== "loading" && (
-          <div className={styles.loading}>No BTC price data available.</div>
+        {!hasChartData && status !== "error" && (
+          <div className={styles.loading}>Loading BTC oracle data…</div>
         )}
 
         {hasChartData && (
