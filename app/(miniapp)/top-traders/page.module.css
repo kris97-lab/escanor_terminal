@@ -25,6 +25,18 @@
   color: rgba(245, 245, 245, 0.75);
 }
 
+.lastUpdated {
+  margin-left: auto;
+  color: rgba(245, 245, 245, 0.55);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+.lastUpdated strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .titleBlock {
   display: flex;
   flex-direction: column;
@@ -101,6 +113,16 @@
   font-size: 0.85rem;
   text-align: center;
   letter-spacing: 0.05em;
+}
+
+.notice {
+  padding: 0.85rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  background: rgba(250, 204, 21, 0.1);
+  color: rgba(250, 204, 21, 0.92);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
 }
 
 .error {

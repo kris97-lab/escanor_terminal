@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -26,12 +26,20 @@ type ChartPoint = ApiPricePoint & {
   movingAverage: number;
 };
 
+type ApiSource = "coingecko" | "fallback";
+
 type BtcApiResponse = {
   prices?: ApiPricePoint[];
   error?: string;
+  source?: ApiSource;
+  warning?: string;
+  errors?: string[];
 };
 
 const MOVING_AVERAGE_WINDOW = 5;
+const CACHE_KEY = "degen-terminal-btc-cache-v1";
+
+type Status = "loading" | "connected" | "fallback" | "error";
 
 function isPricePoint(value: unknown): value is ApiPricePoint {
   if (!value || typeof value !== "object") {
@@ -59,17 +67,74 @@ function formatUsd(value?: number | null): string {
   })}`;
 }
 
+function loadCachedSnapshot(): { prices: ApiPricePoint[]; source: ApiSource; fetchedAt: number | null } | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(CACHE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as {
+      prices?: ApiPricePoint[];
+      source?: ApiSource;
+      fetchedAt?: number;
+    };
+
+    const prices = Array.isArray(parsed.prices) ? parsed.prices.filter(isPricePoint) : [];
+
+    if (prices.length === 0) {
+      return null;
+    }
+
+    return {
+      prices,
+      source: parsed.source === "fallback" ? "fallback" : "coingecko",
+      fetchedAt: typeof parsed.fetchedAt === "number" ? parsed.fetchedAt : null,
+    };
+  } catch (err) {
+    console.error("Failed to parse cached BTC data", err);
+    return null;
+  }
+}
+
+function saveCachedSnapshot(snapshot: { prices: ApiPricePoint[]; source: ApiSource; fetchedAt: number }): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify(snapshot));
+  } catch (err) {
+    console.error("Failed to cache BTC data", err);
+  }
+}
+
 export default function TradePage() {
   const [prices, setPrices] = useState<ApiPricePoint[]>([]);
-  const [status, setStatus] = useState<"loading" | "connected" | "error">("loading");
+  const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const sourceRef = useRef<ApiSource | null>(null);
 
   useEffect(() => {
+    const cached = loadCachedSnapshot();
+    if (cached) {
+      sourceRef.current = cached.source;
+      setPrices(cached.prices);
+      setLastUpdated(cached.fetchedAt);
+      setStatus(cached.source === "fallback" ? "fallback" : "connected");
+    }
+
     let cancelled = false;
 
     const load = async () => {
       try {
-        setStatus((prev) => (prev === "connected" ? "loading" : prev));
+        setStatus((prev) => (prev === "connected" || prev === "fallback" ? "loading" : prev));
 
         const response = await fetch("/api/btc", { cache: "no-store" });
         const payload = (await response.json()) as BtcApiResponse;
@@ -90,16 +155,31 @@ export default function TradePage() {
           return;
         }
 
+        const source: ApiSource = payload.source === "fallback" ? "fallback" : "coingecko";
+        const fetchedAt = Date.now();
+
+        sourceRef.current = source;
         setPrices(normalised);
-        setStatus("connected");
+        setStatus(source === "fallback" ? "fallback" : "connected");
         setError(null);
+        setWarning(payload.warning ?? null);
+        setLastUpdated(fetchedAt);
+        saveCachedSnapshot({ prices: normalised, source, fetchedAt });
       } catch (err) {
         if (cancelled) {
           return;
         }
 
-        setStatus("error");
-        setError(err instanceof Error ? err.message : "Unknown error");
+        const message = err instanceof Error ? err.message : "Unknown error";
+        setError(message);
+        setWarning(null);
+        setStatus((prev) => {
+          if (sourceRef.current) {
+            return sourceRef.current === "fallback" ? "fallback" : "connected";
+          }
+
+          return prev === "loading" ? "error" : prev;
+        });
       }
     };
 
@@ -120,8 +200,7 @@ export default function TradePage() {
     return prices.map((point, index, arr) => {
       const start = Math.max(0, index - MOVING_AVERAGE_WINDOW + 1);
       const slice = arr.slice(start, index + 1);
-      const average =
-        slice.reduce((acc, item) => acc + item.price, 0) / Math.max(slice.length, 1);
+      const average = slice.reduce((acc, item) => acc + item.price, 0) / Math.max(slice.length, 1);
 
       return {
         ...point,
@@ -134,15 +213,39 @@ export default function TradePage() {
   const currentPrice = latestPoint?.price;
   const movingAverage = latestPoint?.movingAverage;
   const statusColor =
-    status === "connected" ? "#4ade80" : status === "error" ? "#f87171" : "#facc15";
+    status === "connected"
+      ? "#4ade80"
+      : status === "fallback"
+      ? "#facc15"
+      : status === "error"
+      ? "#f87171"
+      : "#facc15";
+
+  const statusLabel =
+    status === "connected"
+      ? "Connected to CoinGecko"
+      : status === "fallback"
+      ? "Showing cached BTC snapshot"
+      : status === "error"
+      ? "Reconnecting…"
+      : "Updating feed…";
+
+  const formattedUpdatedAt = lastUpdated
+    ? new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : null;
+
+  const hasChartData = chartData.length > 0;
 
   return (
     <div className={`${layoutStyles.page} ${styles.page}`}>
       <div className={styles.statusRow}>
         <span className={styles.statusIndicator} style={{ color: statusColor }} />
-        <span className={styles.statusLabel}>
-          {status === "connected" ? "Connected to CoinGecko" : status === "error" ? "Reconnecting…" : "Updating feed…"}
-        </span>
+        <span className={styles.statusLabel}>{statusLabel}</span>
+        {formattedUpdatedAt && (
+          <span className={styles.lastUpdated}>
+            Last update: <strong>{formattedUpdatedAt}</strong>
+          </span>
+        )}
       </div>
 
       <section className={`${layoutStyles.section} ${styles.chartCard}`}>
@@ -166,11 +269,18 @@ export default function TradePage() {
           </div>
         </div>
 
-        {status === "error" && error ? (
-          <div className={styles.error}>Failed to load BTC market data: {error}</div>
-        ) : chartData.length === 0 ? (
+        {warning && <div className={styles.notice}>{warning}</div>}
+        {error && <div className={styles.error}>Failed to refresh BTC market data: {error}</div>}
+
+        {!hasChartData && status === "loading" && (
           <div className={styles.loading}>Loading BTC market data…</div>
-        ) : (
+        )}
+
+        {!hasChartData && status !== "loading" && (
+          <div className={styles.loading}>No BTC price data available.</div>
+        )}
+
+        {hasChartData && (
           <div className={styles.chart}>
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
