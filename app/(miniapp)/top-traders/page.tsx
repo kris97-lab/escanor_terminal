@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -12,7 +12,7 @@ import {
 } from "recharts";
 
 import { Button } from "@/components/ui/button";
-import { LimitlessClient, type LimitlessMarket } from "@/lib/limitless";
+import type { LimitlessMarket } from "@/lib/limitless";
 
 import layoutStyles from "../layout.module.css";
 import styles from "./page.module.css";
@@ -31,7 +31,6 @@ type ChartPoint = {
 };
 
 const MOVING_AVERAGE_WINDOW = 12; // assuming 5-minute candles -> 1 hour window
-const DEFAULT_LIMITLESS_API = "https://api.limitless.exchange";
 
 function selectBtcMarket(markets: LimitlessMarket[]): LimitlessMarket | undefined {
   return markets.find((market) => {
@@ -160,25 +159,43 @@ function formatUsd(value?: number | null): string {
   })}`;
 }
 
+function extractMarkets(payload: unknown): LimitlessMarket[] {
+  if (Array.isArray(payload)) {
+    return payload as LimitlessMarket[];
+  }
+
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    const candidates = [record.markets, record.data, record.items, record.results];
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) {
+        return candidate as LimitlessMarket[];
+      }
+    }
+  }
+
+  return [];
+}
+
 export default function TopTradersPage() {
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
   const [marketName, setMarketName] = useState("BTC / USD Hourly");
   const [status, setStatus] = useState<"loading" | "connected" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
 
-  const baseUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_LIMITLESS_API_URL ?? DEFAULT_LIMITLESS_API,
-    [],
-  );
-
   useEffect(() => {
     let mounted = true;
-    const client = new LimitlessClient(baseUrl);
 
     const load = async () => {
       try {
-        setStatus("loading");
-        const markets = await client.getMarkets();
+        setStatus((prev) => (prev === "connected" ? "loading" : prev));
+        const response = await fetch("/api/limitless", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Limitless API proxy ${response.status}`);
+        }
+
+        const payload = await response.json();
+        const markets = extractMarkets(payload);
         const btcMarket = selectBtcMarket(markets) ?? markets[0];
         if (!btcMarket) {
           throw new Error("No markets available");
@@ -202,7 +219,7 @@ export default function TopTradersPage() {
       } catch (err) {
         if (!mounted) return;
         setStatus("error");
-        setError((err as Error).message);
+        setError(err instanceof Error ? err.message : "Unknown error");
       }
     };
 
@@ -213,7 +230,7 @@ export default function TopTradersPage() {
       mounted = false;
       window.clearInterval(interval);
     };
-  }, [baseUrl]);
+  }, []);
 
   const latestPoint = chartData.at(-1);
   const currentPrice = latestPoint?.price;
@@ -254,6 +271,8 @@ export default function TopTradersPage() {
 
         {status === "error" && error ? (
           <div className={styles.error}>Failed to load BTC market data: {error}</div>
+        ) : chartData.length === 0 ? (
+          <div className={styles.loading}>Loading BTC market data…</div>
         ) : (
           <div className={styles.chart}>
             <ResponsiveContainer width="100%" height={300}>
