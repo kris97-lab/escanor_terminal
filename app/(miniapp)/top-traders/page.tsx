@@ -1,84 +1,318 @@
-import styles from "../layout.module.css";
-import localStyles from "./page.module.css";
+"use client";
 
-const traders = [
-  {
-    name: "0xFury",
-    winRate: 74,
-    avgRoi: "+18.4%",
-    followers: "3.2k",
-    streak: 6,
-  },
-  {
-    name: "NeonNakamoto",
-    winRate: 69,
-    avgRoi: "+22.1%",
-    followers: "2.7k",
-    streak: 4,
-  },
-  {
-    name: "Aria",
-    winRate: 63,
-    avgRoi: "+11.3%",
-    followers: "1.9k",
-    streak: 3,
-  },
-];
+import { useEffect, useMemo, useState } from "react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 
-const leaderboards = [
-  { label: "24h PnL", value: "+$186k" },
-  { label: "7d Hit Rate", value: "72%" },
-  { label: "Copied Trades", value: "1,284" },
-];
+import { Button } from "@/components/ui/button";
+import { LimitlessClient, type LimitlessMarket } from "@/lib/limitless";
+
+import layoutStyles from "../layout.module.css";
+import styles from "./page.module.css";
+
+type PricePoint = {
+  timestamp: number;
+  price: number;
+};
+
+type ChartPoint = {
+  timestamp: number;
+  timeLabel: string;
+  price: number;
+  movingAverage: number;
+};
+
+const MOVING_AVERAGE_WINDOW = 12; // assuming 5-minute candles -> 1 hour window
+const DEFAULT_LIMITLESS_API = "https://api.limitless.exchange";
+
+function selectBtcMarket(markets: LimitlessMarket[]): LimitlessMarket | undefined {
+  return markets.find((market) => {
+    const symbol = String(
+      (market as { symbol?: unknown; ticker?: unknown; pair?: unknown; name?: unknown; displayName?: unknown; id?: unknown }).symbol ??
+        (market as { ticker?: unknown }).ticker ??
+        (market as { pair?: unknown }).pair ??
+        (market as { name?: unknown }).name ??
+        (market as { displayName?: unknown }).displayName ??
+        market.id ??
+        "",
+    ).toUpperCase();
+
+    return symbol.includes("BTC") && symbol.includes("USD");
+  });
+}
+
+function normaliseSeries(market: LimitlessMarket): PricePoint[] {
+  const candidateKeys = [
+    "candles",
+    "series",
+    "history",
+    "hourly",
+    "prices",
+    "data",
+    "points",
+    "records",
+  ];
+
+  for (const key of candidateKeys) {
+    const value = (market as Record<string, unknown>)[key];
+    if (Array.isArray(value) && value.length > 0) {
+      const mapped = value
+        .map((entry, index) => {
+          if (!entry || typeof entry !== "object") {
+            return null;
+          }
+
+          const record = entry as Record<string, unknown>;
+          const timestampRaw = record.timestamp ?? record.time ?? record.t ?? record.ts ?? null;
+          const priceRaw =
+            record.close ??
+            record.price ??
+            record.last ??
+            record.value ??
+            record.avgPrice ??
+            record.mid ??
+            record.c ??
+            null;
+
+          const price = typeof priceRaw === "number" ? priceRaw : Number(priceRaw);
+          if (!Number.isFinite(price)) {
+            return null;
+          }
+
+          const timestampSource = typeof timestampRaw === "number" ? timestampRaw : Number(timestampRaw);
+          const timestamp = Number.isFinite(timestampSource)
+            ? (timestampSource > 10_000_000_000 ? timestampSource : timestampSource * 1000)
+            : Date.now() - (value.length - 1 - index) * 3_600_000;
+
+          return {
+            timestamp,
+            price,
+          } satisfies PricePoint;
+        })
+        .filter((point): point is PricePoint => Boolean(point));
+
+      if (mapped.length > 0) {
+        return mapped;
+      }
+    }
+  }
+
+  const fallbackPrice = (market as Record<string, unknown>).price ??
+    (market as Record<string, unknown>).lastPrice ??
+    (market as Record<string, unknown>).markPrice;
+  if (typeof fallbackPrice === "number" && Number.isFinite(fallbackPrice)) {
+    const now = Date.now();
+    return [
+      {
+        timestamp: now - 3_600_000,
+        price: fallbackPrice,
+      },
+      {
+        timestamp: now,
+        price: fallbackPrice,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function buildChartPoints(series: PricePoint[]): ChartPoint[] {
+  const sorted = [...series].sort((a, b) => a.timestamp - b.timestamp);
+  return sorted.map((point, index) => {
+    const start = Math.max(0, index - MOVING_AVERAGE_WINDOW + 1);
+    const windowSlice = sorted.slice(start, index + 1);
+    const average =
+      windowSlice.reduce((acc, item) => acc + item.price, 0) / Math.max(windowSlice.length, 1);
+
+    return {
+      timestamp: point.timestamp,
+      timeLabel: new Date(point.timestamp).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      price: Number(point.price.toFixed(2)),
+      movingAverage: Number(average.toFixed(2)),
+    } satisfies ChartPoint;
+  });
+}
+
+function formatUsd(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "—";
+  }
+
+  return `$${value.toLocaleString(undefined, {
+    minimumFractionDigits: value >= 100 ? 2 : 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 export default function TopTradersPage() {
+  const [chartData, setChartData] = useState<ChartPoint[]>([]);
+  const [marketName, setMarketName] = useState("BTC / USD Hourly");
+  const [status, setStatus] = useState<"loading" | "connected" | "error">("loading");
+  const [error, setError] = useState<string | null>(null);
+
+  const baseUrl = useMemo(
+    () => process.env.NEXT_PUBLIC_LIMITLESS_API_URL ?? DEFAULT_LIMITLESS_API,
+    [],
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    const client = new LimitlessClient(baseUrl);
+
+    const load = async () => {
+      try {
+        setStatus("loading");
+        const markets = await client.getMarkets();
+        const btcMarket = selectBtcMarket(markets) ?? markets[0];
+        if (!btcMarket) {
+          throw new Error("No markets available");
+        }
+
+        const series = normaliseSeries(btcMarket);
+        if (series.length === 0) {
+          throw new Error("BTC-USD market data unavailable");
+        }
+
+        if (!mounted) return;
+        setMarketName(
+          (btcMarket as Record<string, unknown>).name?.toString() ??
+            (btcMarket as Record<string, unknown>).displayName?.toString() ??
+            (btcMarket as Record<string, unknown>).title?.toString() ??
+            `${btcMarket.id}`,
+        );
+        setChartData(buildChartPoints(series));
+        setStatus("connected");
+        setError(null);
+      } catch (err) {
+        if (!mounted) return;
+        setStatus("error");
+        setError((err as Error).message);
+      }
+    };
+
+    load();
+    const interval = window.setInterval(load, 60_000);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(interval);
+    };
+  }, [baseUrl]);
+
+  const latestPoint = chartData.at(-1);
+  const currentPrice = latestPoint?.price;
+  const movingAverage = latestPoint?.movingAverage;
+
+  const statusColor = status === "connected" ? "#4ade80" : status === "error" ? "#f87171" : "#facc15";
+
   return (
-    <div className={`${styles.page} ${localStyles.page}`}>
-      <header className={localStyles.header}>
-        <span className={styles.badge}>Top Desk</span>
-        <h1 className={localStyles.title}>Leaderboard</h1>
-        <p className={localStyles.subtitle}>
-          Discover the most consistent traders across Base. Stats refresh in real time with every execution.
-        </p>
-      </header>
+    <div className={`${layoutStyles.page} ${styles.page}`}>
+      <div className={styles.statusRow}>
+        <span className={styles.statusIndicator} style={{ color: statusColor }} />
+        <span className={styles.statusLabel}>
+          {status === "connected" ? "Connected to Limitless" : status === "error" ? "Reconnecting…" : "Updating feed…"}
+        </span>
+      </div>
 
-      <section className={styles.section}>
-        <div className={styles.sectionHeader}>
-          <h2 className={styles.sectionTitle}>Momentum Board</h2>
-          <span className={styles.caption}>Performance snapshot</span>
-        </div>
-        <div className={styles.grid}>
-          {leaderboards.map((item) => (
-            <div key={item.label} className={localStyles.statTile}>
-              <span className={localStyles.statLabel}>{item.label}</span>
-              <span className={localStyles.statValue}>{item.value}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className={styles.section}>
-        <div className={styles.sectionHeader}>
-          <h2 className={styles.sectionTitle}>Signal Callers</h2>
-          <span className={styles.caption}>Ranked by live hit rate</span>
-        </div>
-        <div className={localStyles.table}>
-          <div className={localStyles.tableHeader}>
-            <span>Trader</span>
-            <span>Win%</span>
-            <span>Avg ROI</span>
-            <span>Followers</span>
-            <span>Streak</span>
+      <section className={`${layoutStyles.section} ${styles.chartCard}`}>
+        <div className={styles.chartHeader}>
+          <div className={styles.titleBlock}>
+            <span className={layoutStyles.badge}>{marketName}</span>
+            <h1 className={styles.headline}>BTC Market Pulse</h1>
+            <p className={styles.subtitle}>
+              Hourly outlook for Bitcoin on Limitless. Track live momentum with a one-hour moving average overlay.
+            </p>
           </div>
-          {traders.map((trader) => (
-            <div key={trader.name} className={localStyles.tableRow}>
-              <span className={localStyles.primary}>{trader.name}</span>
-              <span>{trader.winRate}%</span>
-              <span className={styles.accent}>{trader.avgRoi}</span>
-              <span>{trader.followers}</span>
-              <span>{trader.streak}</span>
+          <div className={styles.metricRow}>
+            <div className={styles.metric}>
+              <span className={styles.metricLabel}>Spot</span>
+              <span className={styles.metricValue}>{formatUsd(currentPrice)}</span>
             </div>
-          ))}
+            <div className={styles.metric}>
+              <span className={styles.metricLabel}>1h Moving Avg</span>
+              <span className={styles.metricValue}>{formatUsd(movingAverage)}</span>
+            </div>
+          </div>
+        </div>
+
+        {status === "error" && error ? (
+          <div className={styles.error}>Failed to load BTC market data: {error}</div>
+        ) : (
+          <div className={styles.chart}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.08)" />
+                <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.45)" tickLine={false} axisLine={false} />
+                <YAxis
+                  stroke="rgba(255,255,255,0.45)"
+                  tickLine={false}
+                  axisLine={false}
+                  domain={["auto", "auto"]}
+                  tickFormatter={(value) => `$${Number(value).toFixed(0)}`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "rgba(10, 10, 10, 0.9)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "0.75rem",
+                    color: "#f5f5f5",
+                    fontFamily: "var(--font-source-code-pro), monospace",
+                    fontSize: "0.75rem",
+                  }}
+                  formatter={(value: number, label) => {
+                    if (label === "movingAverage") {
+                      return [`$${Number(value).toFixed(2)}`, "1h MA"];
+                    }
+                    return [`$${Number(value).toFixed(2)}`, "Price"];
+                  }}
+                  labelFormatter={(label: string, payload) => {
+                    const item = payload?.[0];
+                    if (item && "payload" in item && item.payload) {
+                      const timestamp = (item.payload as ChartPoint).timestamp;
+                      return new Date(timestamp).toLocaleString();
+                    }
+                    return label;
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="price"
+                  stroke="#facc15"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 4, stroke: "#facc15", strokeWidth: 2, fill: "#050505" }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="movingAverage"
+                  stroke="#38bdf8"
+                  strokeWidth={2}
+                  dot={false}
+                  strokeDasharray="6 4"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        <div className={styles.actions}>
+          <Button variant="default" size="lg">
+            Buy BTC Up
+          </Button>
+          <Button variant="outline" size="lg">
+            Buy BTC Down
+          </Button>
         </div>
       </section>
     </div>

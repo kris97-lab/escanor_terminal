@@ -1,0 +1,68 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.75rem 1.5rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  font-family: var(--font-source-code-pro), monospace;
+  border: 1px solid transparent;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.default {
+  background: var(--accent);
+  color: #050505;
+  box-shadow: 0 8px 18px rgba(255, 243, 90, 0.35);
+}
+
+.default:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(255, 243, 90, 0.45);
+}
+
+.outline {
+  background: transparent;
+  color: var(--accent);
+  border-color: rgba(255, 243, 90, 0.5);
+}
+
+.outline:not(:disabled):hover {
+  background: rgba(255, 243, 90, 0.12);
+  box-shadow: 0 10px 24px rgba(255, 243, 90, 0.25);
+}
+
+.ghost {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.ghost:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.45);
+}
+
+.sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+}
+
+.lg {
+  padding: 0.85rem 1.75rem;
+  font-size: 1rem;
+}
+
+.block {
+  width: 100%;
+}

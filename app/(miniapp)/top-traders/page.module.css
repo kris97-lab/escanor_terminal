@@ -1,84 +1,114 @@
 .page {
-  gap: 2rem;
+  gap: 1.5rem;
 }
 
-.header {
+.statusRow {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
 }
 
-.title {
-  font-size: 1.9rem;
-  font-weight: 700;
+.statusIndicator {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  box-shadow: 0 0 12px currentColor;
 }
 
-.subtitle {
-  color: rgba(245, 245, 245, 0.7);
-  line-height: 1.6;
-  font-size: 0.95rem;
+.statusLabel {
+  color: rgba(245, 245, 245, 0.75);
 }
 
-.statTile {
+.titleBlock {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  padding: 1rem 1.2rem;
-  border-radius: 0.85rem;
-  background: rgba(12, 12, 12, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.statLabel {
-  font-size: 0.75rem;
+.headline {
+  font-size: 1.35rem;
+  font-weight: 700;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(245, 245, 245, 0.6);
 }
 
-.statValue {
-  font-size: 1.25rem;
+.subtitle {
+  font-size: 0.85rem;
+  color: rgba(245, 245, 245, 0.65);
+  max-width: 32rem;
+}
+
+.metricRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.metricLabel {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: rgba(245, 245, 245, 0.55);
+}
+
+.metricValue {
+  font-size: 1.3rem;
   font-family: var(--font-source-code-pro), monospace;
   color: var(--accent);
 }
 
-.table {
+.chartCard {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.chartHeader {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
 
-.tableHeader {
-  display: grid;
-  grid-template-columns: 2fr repeat(4, 1fr);
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(245, 245, 245, 0.55);
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+.chart {
+  width: 100%;
+  height: 260px;
 }
 
-.tableRow {
-  display: grid;
-  grid-template-columns: 2fr repeat(4, 1fr);
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.35rem 0;
-  font-size: 0.95rem;
+.error {
+  padding: 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 100, 100, 0.4);
+  background: rgba(255, 80, 80, 0.08);
+  color: rgba(255, 180, 180, 0.9);
+  font-size: 0.85rem;
 }
 
-.primary {
-  font-weight: 600;
-  color: #ffffff;
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
-@media (min-width: 768px) {
-  .title {
-    font-size: 2.3rem;
+@media (min-width: 640px) {
+  .actions {
+    flex-direction: row;
+    justify-content: flex-end;
   }
 
-  .subtitle {
-    font-size: 1.05rem;
+  .chartHeader {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
   }
 }
