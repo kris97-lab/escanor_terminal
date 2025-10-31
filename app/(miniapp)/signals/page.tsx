@@ -19,16 +19,22 @@ interface SignalGroup {
   profileUrl: string;
 }
 
+type Status = "loading" | "connected" | "error";
+
 export default function SignalsPage() {
   const [signals, setSignals] = useState<SignalGroup[]>([]);
   const [error, setError] = useState<string>("");
+  const [status, setStatus] = useState<Status>("loading");
 
   useEffect(() => {
     let isMounted = true;
 
     const fetchSignals = async () => {
       try {
-        const res = await fetch("/api/polymarket/trades");
+        const res = await fetch("/api/polymarket/trades", {
+          cache: "no-store",
+        });
+
         if (!res.ok) {
           const message = await res.text();
           throw new Error(message || `Status ${res.status}`);
@@ -95,10 +101,8 @@ export default function SignalsPage() {
           .filter((group) => group.trades.length >= 2)
           .map((group) => {
             const total = group.trades.reduce((sum, trade) => sum + trade.amount, 0);
-            const profileUrlBase = group.trades[0]?.marketSlug ?? null;
-            const profileUrl = profileUrlBase
-              ? `https://polymarket.com/market/${profileUrlBase}`
-              : "https://polymarket.com/markets";
+            const slug = group.trades[0]?.marketSlug ?? null;
+            const profileUrl = slug ? `https://polymarket.com/market/${slug}` : "https://polymarket.com/markets";
 
             return {
               market: group.market,
@@ -113,12 +117,14 @@ export default function SignalsPage() {
         if (isMounted) {
           setSignals(insiderMarkets);
           setError("");
+          setStatus("connected");
         }
       } catch (err: unknown) {
         if (isMounted) {
           const message = err instanceof Error ? err.message : "Unknown error";
           setError(message);
           setSignals([]);
+          setStatus("error");
         }
       }
     };
@@ -132,12 +138,18 @@ export default function SignalsPage() {
     };
   }, []);
 
+  const statusText =
+    status === "connected" ? "🟢 Connected" : status === "error" ? "🔴 Reconnecting…" : "🟡 Connecting…";
+
   return (
     <div className="p-6 text-center text-white bg-black min-h-screen font-mono">
+      <div className="flex items-center justify-center gap-2 mb-3 text-sm text-gray-400">
+        <span className={status === "connected" ? "text-green-400" : status === "error" ? "text-red-400" : "text-yellow-300"}>
+          {statusText}
+        </span>
+        {error ? <span className="text-red-400">{error}</span> : null}
+      </div>
       <h2 className="text-lg font-bold text-yellow-300 mb-2">POLYMARKET ALPHA RADAR</h2>
-      {error && (
-        <div className="text-red-400 text-sm mb-3">Failed to load: {error}</div>
-      )}
       {signals.length === 0 && !error ? (
         <div className="text-gray-400 text-sm">No qualifying entries yet 💤</div>
       ) : null}
@@ -149,7 +161,7 @@ export default function SignalsPage() {
               href={signal.profileUrl}
               target="_blank"
               rel="noreferrer"
-              className="block w-full max-w-md border border-yellow-300/20 bg-black/40 rounded-xl p-3 hover:border-yellow-400 transition"
+              className="block w-full max-w-md rounded-xl border border-yellow-300/20 bg-black/40 p-3 transition hover:border-yellow-400"
             >
               <div className="text-yellow-300 font-bold text-sm mb-1">{signal.market}</div>
               <div className="text-gray-300 text-xs">
