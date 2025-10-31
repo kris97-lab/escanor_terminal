@@ -62,6 +62,11 @@ type LineProps = {
   stroke?: string;
   strokeWidth?: number;
   strokeDasharray?: string;
+  type?: string;
+  dot?: boolean;
+  isAnimationActive?: boolean;
+  animationDuration?: number;
+  activeDot?: boolean | { r?: number; stroke?: string; strokeWidth?: number; fill?: string };
 };
 
 type AxisProps = {
@@ -69,13 +74,13 @@ type AxisProps = {
   stroke?: string;
   tickLine?: boolean;
   axisLine?: boolean;
-  tickFormatter?: (value: number | string) => string;
+  tickFormatter?: (value: number) => string;
 };
 
 type TooltipProps = {
   contentStyle?: React.CSSProperties;
   formatter?: (value: number, name: string) => [string, string];
-  labelFormatter?: (label: string) => string;
+  labelFormatter?: (label: string, payload: TooltipPayloadItem[]) => string;
 };
 
 type CartesianGridProps = {
@@ -83,7 +88,15 @@ type CartesianGridProps = {
   stroke?: string;
 };
 
+type TooltipPayloadItem = {
+  dataKey: string;
+  payload: Record<string, unknown>;
+  value: number | null;
+  color?: string;
+};
+
 const COMPONENT_ID = {
+  chart: "recharts-lite-chart",
   line: "recharts-lite-line",
   xAxis: "recharts-lite-x-axis",
   yAxis: "recharts-lite-y-axis",
@@ -218,12 +231,23 @@ export function LineChart({ data, margin, children }: LineChartProps) {
     const formatter = tooltip.props.formatter;
     const labelFormatter = tooltip.props.labelFormatter;
 
-    const rows = lineDefs.map((line) => {
+    const payloadItems = lineDefs.map<TooltipPayloadItem>((line) => {
       const rawValue = (activeDatum as Record<string, unknown>)[line.props.dataKey];
-      const numeric = getNumeric(rawValue) ?? 0;
-      const [valueText, name] = formatter ? formatter(numeric, line.props.dataKey) : [String(numeric), line.props.dataKey];
       return {
+        dataKey: line.props.dataKey,
+        payload: activeDatum as Record<string, unknown>,
+        value: getNumeric(rawValue),
         color: line.props.stroke ?? "#facc15",
+      };
+    });
+
+    const rows = payloadItems.map((item) => {
+      const numeric = item.value ?? 0;
+      const [valueText, name] = formatter
+        ? formatter(numeric, item.dataKey)
+        : [String(numeric), item.dataKey];
+      return {
+        color: item.color ?? "#facc15",
         valueText,
         name,
       };
@@ -231,7 +255,7 @@ export function LineChart({ data, margin, children }: LineChartProps) {
 
     const labelRaw = (activeDatum as Record<string, unknown>)[labelKey];
     const labelString = typeof labelRaw === "string" ? labelRaw : String(labelRaw ?? "");
-    const label = labelFormatter ? labelFormatter(labelString) : labelString;
+    const label = labelFormatter ? labelFormatter(labelString, payloadItems) : labelString;
 
     return { rows, label };
   }, [activeDatum, activeIndex, labelKey, lineDefs, tooltip]);

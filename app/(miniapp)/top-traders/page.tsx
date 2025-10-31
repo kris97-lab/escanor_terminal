@@ -24,6 +24,7 @@ type PricePoint = {
 
 type ChartPoint = {
   timestamp: number;
+  time: string;
   timeLabel: string;
   price: number;
   movingAverage: number;
@@ -134,6 +135,10 @@ function buildChartPoints(series: PricePoint[]): ChartPoint[] {
 
     return {
       timestamp: point.timestamp,
+      time: new Date(point.timestamp).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
       timeLabel: new Date(point.timestamp).toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
@@ -213,6 +218,7 @@ export default function TopTradersPage() {
   const latestPoint = chartData.at(-1);
   const currentPrice = latestPoint?.price;
   const movingAverage = latestPoint?.movingAverage;
+  const btcData = chartData;
 
   const statusColor = status === "connected" ? "#4ade80" : status === "error" ? "#f87171" : "#facc15";
 
@@ -250,16 +256,15 @@ export default function TopTradersPage() {
           <div className={styles.error}>Failed to load BTC market data: {error}</div>
         ) : (
           <div className={styles.chart}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={btcData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.08)" />
-                <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.45)" tickLine={false} axisLine={false} />
+                <XAxis dataKey="time" stroke="rgba(255,255,255,0.45)" tickLine={false} axisLine={false} />
                 <YAxis
                   stroke="rgba(255,255,255,0.45)"
                   tickLine={false}
                   axisLine={false}
-                  domain={["auto", "auto"]}
-                  tickFormatter={(value) => `$${Number(value).toFixed(0)}`}
+                  tickFormatter={(value: number) => `$${value.toFixed(0)}`}
                 />
                 <Tooltip
                   contentStyle={{
@@ -288,10 +293,12 @@ export default function TopTradersPage() {
                 <Line
                   type="monotone"
                   dataKey="price"
-                  stroke="#facc15"
-                  strokeWidth={2.5}
+                  stroke="#fff35a"
+                  strokeWidth={2}
                   dot={false}
-                  activeDot={{ r: 4, stroke: "#facc15", strokeWidth: 2, fill: "#050505" }}
+                  isAnimationActive
+                  animationDuration={800}
+                  activeDot={{ r: 4, stroke: "#fff35a", strokeWidth: 2, fill: "#050505" }}
                 />
                 <Line
                   type="monotone"
