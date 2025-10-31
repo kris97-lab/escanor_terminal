@@ -93,15 +93,64 @@ function normaliseFallback(data: FallbackSnapshot): NormalisedPricePoint[] {
     .filter((point): point is NormalisedPricePoint => point !== null);
 }
 
-async function fetchLivePrices(): Promise<NormalisedPricePoint[]> {
-  const response: CoinIdMarketChartResponse = await client.coinIdMarketChart({
-    id: "bitcoin",
-    vs_currency: "usd",
-    days: 1,
-    interval: "hourly",
-  });
+async function fetchLivePrices(errors: string[]): Promise<NormalisedPricePoint[]> {
+  try {
+    const response: CoinIdMarketChartResponse = await client.coinIdMarketChart({
+      id: "bitcoin",
+      vs_currency: "usd",
+      days: 1,
+      interval: "hourly",
+      precision: 2,
+    });
 
-  return normaliseEntries(Array.isArray(response.prices) ? response.prices : undefined);
+    const normalised = normaliseEntries(Array.isArray(response.prices) ? response.prices : undefined);
+
+    if (normalised.length > 0) {
+      return normalised;
+    }
+
+    errors.push("CoinGecko client response missing price data");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown CoinGecko error";
+    errors.push(message);
+    console.error("BTC API error (client):", err);
+  }
+
+  try {
+    const directResponse = await fetch(
+      "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1&interval=hourly&precision=2",
+      {
+        headers: {
+          accept: "application/json",
+          "user-agent": "EscanorTerminal/1.0 (+https://farcaster.miniapp)",
+        },
+        cache: "no-store",
+      },
+    );
+
+    if (!directResponse.ok) {
+      const body = await directResponse.text().catch(() => "");
+      throw new Error(
+        `CoinGecko REST ${directResponse.status}${body ? ` – ${body.slice(0, 120)}` : ""}`,
+      );
+    }
+
+    const payload = (await directResponse.json()) as CoinIdMarketChartResponse;
+    const normalised = normaliseEntries(Array.isArray(payload.prices) ? payload.prices : undefined);
+
+    if (normalised.length === 0) {
+      errors.push("CoinGecko REST response missing price data");
+      return [];
+    }
+
+    return normalised;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown CoinGecko REST error";
+    errors.push(message);
+    console.error("BTC API error (direct):", err);
+  }
+
+  return [];
 }
 
 function buildCacheResponse(
@@ -129,7 +178,7 @@ export async function GET() {
   }
 
   try {
-    const prices = await fetchLivePrices();
+    const prices = await fetchLivePrices(errors);
 
     if (prices.length > 0) {
       cache = {

@@ -300,7 +300,11 @@ export default function TradePage() {
         {hasChartData && (
           <div className={styles.chart}>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+              <LineChart
+                key={lastUpdated ?? chartData.length}
+                data={chartData}
+                margin={{ top: 10, right: 12, left: 0, bottom: 0 }}
+              >
                 <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.08)" />
                 <XAxis dataKey="time" stroke="rgba(255,255,255,0.45)" tickLine={false} axisLine={false} />
                 <YAxis
