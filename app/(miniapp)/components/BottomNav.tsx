@@ -6,7 +6,7 @@ import styles from "./BottomNav.module.css";
 
 const tabs = [
   { href: "/feed", label: "Feed", icon: "📰" },
-  { href: "/top-traders", label: "Trade", icon: "⚡" },
+  { href: "/trade", label: "Trade", icon: "⚡" },
   { href: "/signals", label: "Signals", icon: "📡" },
 ];
 

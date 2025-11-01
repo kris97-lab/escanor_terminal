@@ -88,6 +88,22 @@ type CartesianGridProps = {
   stroke?: string;
 };
 
+type ReferenceLineLabel =
+  | string
+  | {
+      value?: string;
+      position?: "left" | "right";
+      fill?: string;
+      fontSize?: number;
+    };
+
+type ReferenceLineProps = {
+  y?: number;
+  stroke?: string;
+  strokeDasharray?: string;
+  label?: ReferenceLineLabel;
+};
+
 type TooltipPayloadItem = {
   dataKey: string;
   payload: Record<string, unknown>;
@@ -102,6 +118,7 @@ const COMPONENT_ID = {
   yAxis: "recharts-lite-y-axis",
   tooltip: "recharts-lite-tooltip",
   grid: "recharts-lite-grid",
+  referenceLine: "recharts-lite-reference-line",
 } as const;
 
 type ComponentId = (typeof COMPONENT_ID)[keyof typeof COMPONENT_ID];
@@ -173,12 +190,21 @@ export function LineChart({ data, margin, children }: LineChartProps) {
   const grid = childArray.find((child): child is React.ReactElement<CartesianGridProps> =>
     isChartElement<CartesianGridProps>(child, COMPONENT_ID.grid),
   );
+  const referenceLines = childArray.filter((child): child is React.ReactElement<ReferenceLineProps> =>
+    isChartElement<ReferenceLineProps>(child, COMPONENT_ID.referenceLine),
+  );
 
-  const allValues = lineDefs.flatMap((line) =>
+  const lineValues = lineDefs.flatMap((line) =>
     data
       .map((datum) => getNumeric((datum as Record<string, unknown>)[line.props.dataKey]))
       .filter((value): value is number => value !== null),
   );
+
+  const referenceValues = referenceLines
+    .map((line) => getNumeric(line.props.y))
+    .filter((value): value is number => value !== null);
+
+  const allValues = [...lineValues, ...referenceValues];
 
   const hasValues = allValues.length > 0;
   const yMin = hasValues ? Math.min(...allValues) : 0;
@@ -336,6 +362,56 @@ export function LineChart({ data, margin, children }: LineChartProps) {
           </g>
         ) : null}
 
+        {referenceLines.map((line, lineIndex) => {
+          const numeric = getNumeric(line.props.y);
+          if (numeric === null) {
+            return null;
+          }
+
+          const y = yScale(numeric);
+          const stroke = line.props.stroke ?? "rgba(255,255,255,0.35)";
+          const strokeDasharray = line.props.strokeDasharray ?? "4 4";
+          const label = line.props.label;
+
+          let labelText: string | null = null;
+          let labelPosition: "left" | "right" = "right";
+          let labelFill = stroke;
+          let labelFontSize = 11;
+
+          if (label) {
+            if (typeof label === "string") {
+              labelText = label;
+            } else {
+              labelText = label.value ?? null;
+              labelPosition = label.position ?? "right";
+              if (label.fill) {
+                labelFill = label.fill;
+              }
+              if (label.fontSize) {
+                labelFontSize = label.fontSize;
+              }
+            }
+          }
+
+          return (
+            <g key={`reference-${lineIndex}`}>
+              <line x1={0} x2={chartWidth} y1={y} y2={y} stroke={stroke} strokeDasharray={strokeDasharray} />
+              {labelText ? (
+                <text
+                  x={labelPosition === "left" ? 8 : chartWidth - 8}
+                  y={y - 6}
+                  textAnchor={labelPosition === "left" ? "start" : "end"}
+                  fontSize={labelFontSize}
+                  fill={labelFill}
+                  fontFamily="var(--font-source-code-pro), monospace"
+                >
+                  {labelText}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
+
         {lineDefs.map((line, lineIndex) => {
           const path = data
             .map((datum, index) => {
@@ -463,3 +539,9 @@ export function CartesianGrid(_props: CartesianGridProps) {
 }
 CartesianGrid.displayName = "CartesianGrid";
 assignComponentId(CartesianGrid, COMPONENT_ID.grid);
+
+export function ReferenceLine(_props: ReferenceLineProps) {
+  return null;
+}
+ReferenceLine.displayName = "ReferenceLine";
+assignComponentId(ReferenceLine, COMPONENT_ID.referenceLine);
