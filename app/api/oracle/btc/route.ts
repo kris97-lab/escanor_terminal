@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 
-const PYTH_URL =
-  "https://hermes.pyth.network/api/latest_price_feeds?ids[]=0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace";
+const PYTH_FEED_ID =
+  "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace";
+
+const PYTH_URL = (() => {
+  const url = new URL("https://hermes.pyth.network/api/latest_price_feeds");
+  url.searchParams.set("ids[]", PYTH_FEED_ID);
+  url.searchParams.set("decoded", "true");
+  return url.toString();
+})();
 
 const LIMITLESS_URL =
   "https://api.limitless.exchange/markets/btc-usd-hourly-prediction/historical-price?interval=1h";
@@ -35,20 +42,81 @@ type LimitlessPayload =
     }
   | undefined;
 
+type ParsedNumeric = {
+  mantissa: number;
+  exponentAdjustment: number;
+};
+
+function normaliseNumeric(value: unknown): ParsedNumeric | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return { mantissa: value, exponentAdjustment: 0 };
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/e/i.test(trimmed)) {
+    const scientific = Number(trimmed);
+    if (!Number.isFinite(scientific)) {
+      return null;
+    }
+    return { mantissa: scientific, exponentAdjustment: 0 };
+  }
+
+  const negative = trimmed.startsWith("-");
+  const unsigned = negative ? trimmed.slice(1) : trimmed;
+  const [integerPart, fractionalPart = ""] = unsigned.split(".");
+
+  if (!/^[0-9]*$/.test(integerPart) || !/^[0-9]*$/.test(fractionalPart)) {
+    return null;
+  }
+
+  const digits = `${integerPart}${fractionalPart}`.replace(/^0+(?=\d)/, "") || "0";
+  const mantissa = Number.parseInt(digits, 10);
+
+  if (!Number.isFinite(mantissa)) {
+    return null;
+  }
+
+  const signedMantissa = negative ? -mantissa : mantissa;
+  const exponentAdjustment = -fractionalPart.length;
+  return { mantissa: signedMantissa, exponentAdjustment };
+}
+
+function scaleMantissa(mantissa: number, exponent: number): number {
+  return mantissa * Math.pow(10, exponent);
+}
+
 function parsePythPrice(payload: PythPayload) {
   const feed = Array.isArray(payload) ? payload[0] : undefined;
-  const rawPrice = Number(feed?.price?.price);
-  const expo = Number(feed?.price?.expo);
-  const publishTime = Number(feed?.price?.publish_time);
+  const priceInfo = feed?.price as
+    | {
+        price?: number | string;
+        expo?: number | string;
+        publish_time?: number | string;
+        publishTime?: number | string;
+      }
+    | undefined;
 
-  if (!Number.isFinite(rawPrice) || !Number.isFinite(expo) || !Number.isFinite(publishTime)) {
+  const numeric = normaliseNumeric(priceInfo?.price);
+  const expo = Number(priceInfo?.expo);
+  const publishTime = Number(priceInfo?.publish_time ?? priceInfo?.publishTime);
+
+  if (!numeric || !Number.isFinite(expo) || !Number.isFinite(publishTime)) {
     throw new Error("Invalid Pyth payload");
   }
 
-  const price = rawPrice * Math.pow(10, expo);
+  const totalExponent = expo + numeric.exponentAdjustment;
+  const price = scaleMantissa(numeric.mantissa, totalExponent);
   const timestamp = publishTime * 1000;
 
-  if (!Number.isFinite(price) || !Number.isFinite(timestamp)) {
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(timestamp)) {
     throw new Error("Invalid Pyth payload");
   }
 
@@ -114,7 +182,10 @@ function parseLimitlessPrices(payload: LimitlessPayload) {
 export async function GET() {
   try {
     const [pythResult, limitlessResult] = await Promise.allSettled([
-      fetch(PYTH_URL, { cache: "no-store" }),
+      fetch(PYTH_URL, {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      }),
       fetch(LIMITLESS_URL, {
         cache: "no-store",
         headers: {

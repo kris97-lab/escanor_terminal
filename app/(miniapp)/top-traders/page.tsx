@@ -11,7 +11,6 @@ import {
   Tooltip,
 } from "recharts";
 
-import fallbackData from "@/data/btc-fallback.json";
 import { Button } from "@/components/ui/button";
 
 import layoutStyles from "../layout.module.css";
@@ -42,43 +41,10 @@ type CachePayload = {
   lastUpdated: number;
 };
 
-type FallbackShape = {
-  prices?: Array<{ timestamp: number; price: number }>;
-};
-
 const HOUR_MS = 3_600_000;
 const ORACLE_HISTORY_LIMIT = 12;
 const MARKET_HISTORY_LIMIT = 48;
 const CACHE_KEY = "degen-terminal-btc-dual-oracle";
-
-const FALLBACK_ORACLE: OraclePoint[] = (() => {
-  const typed = fallbackData as FallbackShape;
-  const series = Array.isArray(typed.prices) ? typed.prices : [];
-  if (series.length === 0) {
-    return [];
-  }
-
-  const anchor = series.at(-1)?.timestamp ?? Date.now();
-  const offset = Date.now() - anchor;
-
-  return series
-    .map((point) => {
-      const timestamp = Number(point.timestamp) + offset;
-      const price = Number(point.price);
-      if (!Number.isFinite(timestamp) || !Number.isFinite(price)) {
-        return null;
-      }
-      return { timestamp, value: price } satisfies OraclePoint;
-    })
-    .filter((point): point is OraclePoint => point !== null)
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .slice(-ORACLE_HISTORY_LIMIT);
-})();
-
-const FALLBACK_MARKET: MarketPoint[] = FALLBACK_ORACLE.map((point, index) => ({
-  timestamp: point.timestamp,
-  value: point.value * (index % 2 === 0 ? 0.998 : 1.002),
-})).slice(-MARKET_HISTORY_LIMIT);
 
 function formatUsd(value?: number | null, options?: Intl.NumberFormatOptions): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -288,14 +254,6 @@ export default function TradePage() {
       setOracleHistory(cached.oracleHistory);
       setMarketHistory(cached.marketHistory);
       setLastUpdated(cached.lastUpdated);
-      setStatus("cache");
-      return;
-    }
-
-    if (FALLBACK_ORACLE.length > 0) {
-      setOracleHistory(FALLBACK_ORACLE);
-      setMarketHistory(FALLBACK_MARKET);
-      setLastUpdated(FALLBACK_ORACLE.at(-1)?.timestamp ?? null);
       setStatus("cache");
     }
   }, []);
