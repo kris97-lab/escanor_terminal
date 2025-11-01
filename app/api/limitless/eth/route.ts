@@ -1,15 +1,27 @@
 import { NextResponse } from "next/server";
 
-interface LimitlessFeedEvent {
+const MARKET_SLUG = "eth-price-prediction";
+const LIMITLESS_BASE_URL = "https://api.limitless.exchange/markets";
+
+interface FeedEventLike {
   timestamp?: number | string | null;
   price?: number | string | null;
+  data?: {
+    price?: number | string | null;
+  } | null;
 }
 
-interface LimitlessMarketResponse {
+interface FeedEnvelope {
+  events?: FeedEventLike[] | null;
+}
+
+interface MarketEnvelope {
+  strike_price?: number | string | null;
+  end_time?: number | string | null;
   market?: {
     strike_price?: number | string | null;
     end_time?: number | string | null;
-  };
+  } | null;
 }
 
 interface NormalisedPricePoint {
@@ -40,57 +52,110 @@ function normaliseTimestamp(raw: unknown): number | null {
   return Number.isFinite(ms) ? Math.trunc(ms) : null;
 }
 
+function extractEvents(payload: unknown): FeedEventLike[] {
+  if (!payload) {
+    return [];
+  }
+
+  if (Array.isArray(payload)) {
+    return payload as FeedEventLike[];
+  }
+
+  if (typeof payload === "object" && payload !== null) {
+    const events = (payload as FeedEnvelope).events;
+    if (Array.isArray(events)) {
+      return events;
+    }
+  }
+
+  return [];
+}
+
+function extractStrike(meta: MarketEnvelope | null | undefined): number | null {
+  if (!meta) {
+    return null;
+  }
+
+  const direct = toNumber(meta.strike_price);
+  if (direct !== null) {
+    return direct;
+  }
+
+  if (meta.market) {
+    const nested = toNumber(meta.market.strike_price);
+    if (nested !== null) {
+      return nested;
+    }
+  }
+
+  return null;
+}
+
+function extractClosesAt(meta: MarketEnvelope | null | undefined): number | null {
+  if (!meta) {
+    return null;
+  }
+
+  const direct = normaliseTimestamp(meta.end_time);
+  if (direct !== null) {
+    return direct;
+  }
+
+  if (meta.market) {
+    const nested = normaliseTimestamp(meta.market.end_time);
+    if (nested !== null) {
+      return nested;
+    }
+  }
+
+  return null;
+}
+
 export async function GET() {
   try {
-    const feedResponse = await fetch(
-      "https://api.limitless.exchange/markets/eth-usd-hourly-prediction/get-feed-events",
-      { cache: "no-store" },
-    );
+    const [metaResponse, feedResponse] = await Promise.all([
+      fetch(`${LIMITLESS_BASE_URL}/${MARKET_SLUG}`),
+      fetch(`${LIMITLESS_BASE_URL}/${MARKET_SLUG}/get-feed-events?limit=50`),
+    ]);
+
+    if (!metaResponse.ok) {
+      throw new Error(`Limitless meta error ${metaResponse.status}`);
+    }
 
     if (!feedResponse.ok) {
       throw new Error(`Limitless feed error ${feedResponse.status}`);
     }
 
-    const feedJson = (await feedResponse.json()) as unknown;
+    const metaJson = (await metaResponse.json()) as MarketEnvelope;
+    const feedJson = await feedResponse.json();
 
-    if (!Array.isArray(feedJson)) {
-      throw new Error("Unexpected feed payload");
-    }
+    const events = extractEvents(feedJson);
 
-    const normalisedPrices: NormalisedPricePoint[] = feedJson
-      .map((entry: LimitlessFeedEvent) => {
-        const timestamp = normaliseTimestamp(entry.timestamp);
-        const price = toNumber(entry.price);
+    const prices: NormalisedPricePoint[] = events
+      .map((event) => {
+        const timestamp = normaliseTimestamp(event.timestamp);
+        const priceCandidate = event.price ?? event.data?.price ?? null;
+        const price = toNumber(priceCandidate);
         if (timestamp === null || price === null) {
           return null;
         }
+
         return { timestamp, price } satisfies NormalisedPricePoint;
       })
       .filter((point): point is NormalisedPricePoint => point !== null)
-      .slice(-50);
+      .slice(-200);
 
-    const metaResponse = await fetch(
-      "https://api.limitless.exchange/markets/eth-usd-hourly-prediction",
-      { cache: "no-store" },
-    );
-
-    if (!metaResponse.ok) {
-      throw new Error(`Limitless market error ${metaResponse.status}`);
-    }
-
-    const metaJson = (await metaResponse.json()) as LimitlessMarketResponse;
-
-    const baseline = toNumber(metaJson.market?.strike_price) ?? 0;
-    const closesAt = normaliseTimestamp(metaJson.market?.end_time);
+    const strike = extractStrike(metaJson);
+    const closesAt = extractClosesAt(metaJson);
 
     return NextResponse.json({
-      baseline,
+      strike,
       closesAt,
-      prices: normalisedPrices,
+      prices,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("Limitless live fetch error:", message);
+    console.error("ETH feed error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

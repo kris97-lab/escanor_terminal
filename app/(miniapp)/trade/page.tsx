@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LineChart,
   Line,
@@ -16,13 +16,18 @@ import { Button } from "@/components/ui/button";
 import layoutStyles from "../layout.module.css";
 import styles from "./page.module.css";
 
+const WS_ENDPOINT = "wss://api.limitless.exchange/ws";
+const MARKET_PRODUCT_ID = "eth-price-prediction";
+const MAX_POINTS = 200;
+const FALLBACK_POLL_INTERVAL = 5_000;
+
 interface PricePoint {
   timestamp: number;
   price: number;
 }
 
 interface FeedSuccess {
-  baseline: number;
+  strike: number | null;
   closesAt: number | null;
   prices: PricePoint[];
 }
@@ -33,16 +38,53 @@ interface FeedError {
 
 type FeedResponse = FeedSuccess | FeedError;
 
-type Status = "loading" | "live" | "error";
+type Status = "connecting" | "live" | "fallback" | "error";
 
 function isFeedSuccess(payload: FeedResponse): payload is FeedSuccess {
   return (
     payload !== null &&
     typeof payload === "object" &&
-    "baseline" in payload &&
-    typeof (payload as FeedSuccess).baseline === "number" &&
     Array.isArray((payload as FeedSuccess).prices)
   );
+}
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function normaliseTimestamp(raw: unknown): number | null {
+  const numeric = toNumber(raw);
+  if (numeric === null) {
+    return null;
+  }
+
+  const ms = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+  return Number.isFinite(ms) ? Math.trunc(ms) : null;
+}
+
+function normalisePricePoint(point: unknown): PricePoint | null {
+  if (!point || typeof point !== "object") {
+    return null;
+  }
+
+  const candidate = point as Partial<PricePoint>;
+  const timestamp = normaliseTimestamp(candidate.timestamp);
+  const price = toNumber(candidate.price);
+
+  if (timestamp === null || price === null) {
+    return null;
+  }
+
+  return { timestamp, price } satisfies PricePoint;
 }
 
 function formatUsd(value: number | null, options?: Intl.NumberFormatOptions): string {
@@ -57,17 +99,19 @@ function formatUsd(value: number | null, options?: Intl.NumberFormatOptions): st
   })}`;
 }
 
-function formatBaseline(baseline: number | null): string {
-  if (baseline === null) {
+function formatStrike(value: number | null): string {
+  if (value === null) {
     return "—";
   }
-  return `$${baseline.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+  return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
 function formatTimestamp(value: number | null): string {
   if (!value) {
     return "—";
   }
+
   return new Date(value).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
@@ -97,7 +141,9 @@ function useCountdown(target: number | null): string {
         return;
       }
 
-      setLabel(`${minutes.toString().padStart(2, "0")}m ${seconds.toString().padStart(2, "0")}s`);
+      setLabel(`${minutes.toString().padStart(2, "0")}m ${seconds
+        .toString()
+        .padStart(2, "0")}s`);
     };
 
     update();
@@ -108,71 +154,237 @@ function useCountdown(target: number | null): string {
   return label;
 }
 
+function parseWebSocketPayload(raw: unknown): {
+  price: number | null;
+  strike: number | null;
+  timestamp: number | null;
+} {
+  let textPayload: string | null = null;
+
+  if (typeof raw === "string") {
+    textPayload = raw;
+  } else if (raw instanceof ArrayBuffer) {
+    textPayload = new TextDecoder().decode(raw);
+  }
+
+  if (textPayload === null) {
+    return { price: null, strike: null, timestamp: null };
+  }
+
+  try {
+    const payload = JSON.parse(textPayload) as Record<string, unknown>;
+
+    const containers: Array<Record<string, unknown>> = [];
+
+    if (payload.data && typeof payload.data === "object") {
+      containers.push(payload.data as Record<string, unknown>);
+    }
+
+    const event = payload.event as Record<string, unknown> | undefined;
+    if (event && typeof event.data === "object" && event.data !== null) {
+      containers.push(event.data as Record<string, unknown>);
+    }
+
+    containers.push(payload);
+
+    let price: number | null = null;
+    let strike: number | null = null;
+    let timestamp: number | null = null;
+
+    for (const candidate of containers) {
+      if (price === null && "price" in candidate) {
+        price = toNumber(candidate.price);
+      }
+      if (strike === null && "strike_price" in candidate) {
+        strike = toNumber(candidate.strike_price);
+      }
+      if (timestamp === null && "timestamp" in candidate) {
+        timestamp = normaliseTimestamp(candidate.timestamp);
+      }
+    }
+
+    if (timestamp === null) {
+      timestamp = normaliseTimestamp(payload.timestamp);
+    }
+
+    return { price, strike, timestamp };
+  } catch (err) {
+    console.warn("WS parse error", err);
+    return { price: null, strike: null, timestamp: null };
+  }
+}
+
 export default function TradePage() {
   const [series, setSeries] = useState<PricePoint[]>([]);
   const [baseline, setBaseline] = useState<number | null>(null);
   const [closesAt, setClosesAt] = useState<number | null>(null);
-  const [status, setStatus] = useState<Status>("loading");
+  const [status, setStatus] = useState<Status>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [connected, setConnected] = useState(false);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const fallbackIntervalRef = useRef<number | null>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null);
 
   const countdownLabel = useCountdown(closesAt);
 
-  const fetchFeed = useCallback(async () => {
-    try {
-      const response = await fetch("/api/limitless/eth", { cache: "no-store" });
-      const json = (await response.json()) as FeedResponse;
+  const appendPoint = useCallback((point: PricePoint) => {
+    setSeries((previous) => {
+      const next = [...previous, point];
+      return next.slice(-MAX_POINTS);
+    });
+    setLastUpdated(Date.now());
+  }, []);
 
-      if (!response.ok || !isFeedSuccess(json)) {
-        const message = isFeedSuccess(json) ? `Limitless feed error ${response.status}` : json.error;
-        throw new Error(message ?? "Unknown feed error");
-      }
-
-      const normalisedSeries = json.prices
-        .map((point) => {
-          const timestamp = typeof point.timestamp === "number" ? point.timestamp : Number(point.timestamp);
-          const price = typeof point.price === "number" ? point.price : Number(point.price);
-          if (!Number.isFinite(timestamp) || !Number.isFinite(price)) {
-            return null;
-          }
-          return { timestamp, price } satisfies PricePoint;
-        })
-        .filter((point): point is PricePoint => point !== null)
-        .slice(-50);
-
-      setSeries(normalisedSeries);
-      setBaseline(Number.isFinite(json.baseline) ? json.baseline : null);
-      const closesAtValue =
-        typeof json.closesAt === "number" && Number.isFinite(json.closesAt) ? json.closesAt : null;
-      setClosesAt(closesAtValue);
-      setStatus("live");
-      setError(null);
-      setLastUpdated(Date.now());
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load feed";
-      setError(message);
-      setStatus("error");
+  const stopFallback = useCallback(() => {
+    if (fallbackIntervalRef.current !== null) {
+      window.clearInterval(fallbackIntervalRef.current);
+      fallbackIntervalRef.current = null;
     }
   }, []);
 
+  const fetchFeed = useCallback(
+    async (source: "initial" | "fallback" = "initial") => {
+      try {
+        const response = await fetch("/api/limitless/eth", { cache: "no-store" });
+        const json = (await response.json()) as FeedResponse;
+
+        if (!response.ok || !isFeedSuccess(json)) {
+          const message =
+            !response.ok && !isFeedSuccess(json)
+              ? `Limitless feed error ${response.status}`
+              : (json as FeedError).error ?? "Unexpected feed error";
+          throw new Error(message);
+        }
+
+        const normalisedSeries = json.prices
+          .map((point) => normalisePricePoint(point))
+          .filter((point): point is PricePoint => point !== null)
+          .slice(-MAX_POINTS);
+
+        setSeries(normalisedSeries);
+        setBaseline(typeof json.strike === "number" && Number.isFinite(json.strike) ? json.strike : null);
+        setClosesAt(
+          typeof json.closesAt === "number" && Number.isFinite(json.closesAt) ? json.closesAt : null,
+        );
+        setLastUpdated(Date.now());
+        setError(null);
+
+        if (connected) {
+          setStatus("live");
+        } else if (source === "fallback") {
+          setStatus("fallback");
+        } else {
+          setStatus((prev) => (prev === "error" ? "fallback" : "connecting"));
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to load feed";
+        setError(message);
+        setStatus("error");
+      }
+    },
+    [connected],
+  );
+
+  const startFallback = useCallback(() => {
+    if (fallbackIntervalRef.current !== null) {
+      return;
+    }
+
+    void fetchFeed("fallback");
+    setStatus("fallback");
+    fallbackIntervalRef.current = window.setInterval(() => {
+      void fetchFeed("fallback");
+    }, FALLBACK_POLL_INTERVAL);
+  }, [fetchFeed]);
+
+  const connectWebSocket = useCallback(() => {
+    setStatus((prev) => (prev === "live" ? prev : "connecting"));
+    try {
+      const ws = new WebSocket(WS_ENDPOINT);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setConnected(true);
+        setStatus("live");
+        setError(null);
+        stopFallback();
+
+        const subscription = {
+          type: "subscribe",
+          channels: [{ name: "market_updates", product_ids: [MARKET_PRODUCT_ID] }],
+        };
+
+        ws.send(JSON.stringify(subscription));
+      };
+
+      ws.onmessage = (event) => {
+        const { price, strike, timestamp } = parseWebSocketPayload(event.data);
+        if (strike !== null) {
+          setBaseline(strike);
+        }
+
+        if (price === null) {
+          return;
+        }
+
+        const pointTimestamp = timestamp ?? Date.now();
+        appendPoint({ timestamp: pointTimestamp, price });
+        setStatus("live");
+        setError(null);
+      };
+
+      ws.onerror = () => {
+        setConnected(false);
+        setStatus("error");
+        startFallback();
+        if (ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED) {
+          ws.close();
+        }
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        setStatus((prev) => (prev === "error" ? prev : "fallback"));
+        startFallback();
+        if (reconnectTimeoutRef.current === null) {
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            reconnectTimeoutRef.current = null;
+            connectWebSocket();
+          }, 3_000);
+        }
+      };
+    } catch (err) {
+      console.error("WebSocket init error", err);
+      setConnected(false);
+      setStatus("error");
+      startFallback();
+      if (reconnectTimeoutRef.current === null) {
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          reconnectTimeoutRef.current = null;
+          connectWebSocket();
+        }, 3_000);
+      }
+    }
+  }, [appendPoint, startFallback, stopFallback]);
+
   useEffect(() => {
-    let mounted = true;
-
-    const load = async () => {
-      if (!mounted) return;
-      await fetchFeed();
-    };
-
-    load();
-    const interval = window.setInterval(() => {
-      void fetchFeed();
-    }, 2000);
+    void fetchFeed();
+    connectWebSocket();
 
     return () => {
-      mounted = false;
-      window.clearInterval(interval);
+      stopFallback();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (reconnectTimeoutRef.current !== null) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
     };
-  }, [fetchFeed]);
+  }, [connectWebSocket, fetchFeed, stopFallback]);
 
   const chartData = useMemo(
     () =>
@@ -190,39 +402,46 @@ export default function TradePage() {
 
   const currentPrice = series.length > 0 ? series[series.length - 1]!.price : null;
   const previousPrice = series.length > 1 ? series[series.length - 2]!.price : null;
-
   const priceDelta =
     currentPrice !== null && previousPrice !== null ? currentPrice - previousPrice : null;
 
   const deltaLabel = priceDelta !== null ? `${priceDelta >= 0 ? "+" : ""}${priceDelta.toFixed(2)}` : "—";
   const deltaClass = priceDelta !== null && priceDelta < 0 ? styles.negative : styles.positive;
 
-  const baselineValue = baseline ?? null;
-  const isAboveBaseline =
-    baselineValue !== null && currentPrice !== null ? currentPrice >= baselineValue : false;
-
+  const strikeValue = baseline ?? null;
+  const isAboveStrike = strikeValue !== null && currentPrice !== null ? currentPrice >= strikeValue : false;
   const lastUpdatedLabel = formatTimestamp(lastUpdated);
 
   const statusLabel =
-    status === "loading" ? "Syncing" : status === "error" ? "Degraded" : "Live";
+    status === "live"
+      ? "Live · WebSocket"
+      : status === "fallback"
+      ? "Fallback · REST"
+      : status === "error"
+      ? "Error"
+      : "Connecting";
 
   const statusClass =
-    status === "live" ? styles.statusLive : status === "error" ? styles.statusError : styles.statusLoading;
+    status === "live"
+      ? styles.statusLive
+      : status === "error"
+      ? styles.statusError
+      : styles.statusLoading;
 
   return (
     <div className={layoutStyles.page}>
       <section className={styles.card}>
         <header className={styles.header}>
           <div className={styles.priceBlock}>
-            <span className={styles.badge}>ETH · Limitless Live Market</span>
+            <span className={styles.badge}>ETH · Limitless WebSocket Feed</span>
             <div className={styles.priceRow}>
               <span className={styles.spot}>{formatUsd(currentPrice)}</span>
               <span className={`${styles.delta} ${deltaClass}`}>{deltaLabel}</span>
             </div>
             <div className={styles.metaRow}>
               <div className={styles.metaItem}>
-                <span className={styles.metaLabel}>Baseline</span>
-                <span className={styles.metaValue}>{formatBaseline(baselineValue)}</span>
+                <span className={styles.metaLabel}>Strike</span>
+                <span className={styles.metaValue}>{formatStrike(strikeValue)}</span>
               </div>
               <div className={styles.metaItem}>
                 <span className={styles.metaLabel}>Countdown</span>
@@ -238,11 +457,11 @@ export default function TradePage() {
         </header>
 
         <div className={styles.chartShell}>
-          {error && status !== "live" ? (
+          {status === "error" && error ? (
             <div className={styles.errorBanner}>Failed to refresh live market: {error}</div>
           ) : null}
 
-          {chartData.length === 0 && status === "loading" ? (
+          {chartData.length === 0 && status === "connecting" ? (
             <div className={styles.loading}>Loading ETH market data…</div>
           ) : null}
 
@@ -270,22 +489,21 @@ export default function TradePage() {
                     return [`$${numeric.toFixed(2)}`, "ETH Live"];
                   }}
                 />
-                {baselineValue !== null ? (
+                {strikeValue !== null ? (
                   <ReferenceLine
-                    y={baselineValue}
+                    y={strikeValue}
                     stroke="#ff6b6b"
                     strokeDasharray="6 4"
-                    label={{ value: "Baseline", position: "right", fill: "#ff6b6b", fontSize: 11 }}
+                    label={{ value: "Strike", position: "right", fill: "#ff6b6b", fontSize: 11 }}
                   />
                 ) : null}
                 <Line
                   type="monotone"
                   dataKey="price"
-                  stroke="#fff35a"
+                  stroke="#00ffd0"
                   strokeWidth={2.4}
                   dot={false}
-                  isAnimationActive
-                  animationDuration={500}
+                  isAnimationActive={false}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -297,21 +515,23 @@ export default function TradePage() {
             variant="default"
             size="lg"
             block
-            className={isAboveBaseline ? styles.aboveActive : undefined}
+            className={isAboveStrike ? styles.aboveActive : undefined}
           >
-            Above {formatBaseline(baselineValue)}
+            Above {formatStrike(strikeValue)}
           </Button>
           <Button
             variant="outline"
             size="lg"
             block
-            className={!isAboveBaseline ? styles.belowActive : undefined}
+            className={!isAboveStrike ? styles.belowActive : undefined}
           >
-            Below {formatBaseline(baselineValue)}
+            Below {formatStrike(strikeValue)}
           </Button>
         </div>
 
-        <p className={styles.footerNote}>Live data refreshes every 2 seconds · Powered by Limitless Exchange</p>
+        <p className={styles.footerNote}>
+          Streaming via Limitless WebSocket · REST fallback every {FALLBACK_POLL_INTERVAL / 1000}s
+        </p>
       </section>
     </div>
   );
