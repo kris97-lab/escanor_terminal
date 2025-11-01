@@ -17,9 +17,9 @@ import layoutStyles from "../layout.module.css";
 import styles from "./page.module.css";
 
 const WS_ENDPOINT = "wss://api.limitless.exchange/ws";
-const MARKET_PRODUCT_ID = "eth-price-prediction";
+const MARKET_PRODUCT_ID = "dollareth-above-dollar387149-on-nov-1-1600-utc-1762009208957";
 const MAX_POINTS = 200;
-const FALLBACK_POLL_INTERVAL = 5_000;
+const POLL_INTERVAL = 3_000;
 
 interface PricePoint {
   timestamp: number;
@@ -30,6 +30,7 @@ interface FeedSuccess {
   strike: number | null;
   closesAt: number | null;
   prices: PricePoint[];
+  source: "limitless" | "coingecko";
 }
 
 interface FeedError {
@@ -44,7 +45,8 @@ function isFeedSuccess(payload: FeedResponse): payload is FeedSuccess {
   return (
     payload !== null &&
     typeof payload === "object" &&
-    Array.isArray((payload as FeedSuccess).prices)
+    Array.isArray((payload as FeedSuccess).prices) &&
+    typeof (payload as FeedSuccess).source === "string"
   );
 }
 
@@ -219,12 +221,12 @@ export default function TradePage() {
   const [baseline, setBaseline] = useState<number | null>(null);
   const [closesAt, setClosesAt] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("connecting");
+  const [feedSource, setFeedSource] = useState<"limitless" | "coingecko">("limitless");
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [connected, setConnected] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const fallbackIntervalRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
 
   const countdownLabel = useCountdown(closesAt);
@@ -237,15 +239,8 @@ export default function TradePage() {
     setLastUpdated(Date.now());
   }, []);
 
-  const stopFallback = useCallback(() => {
-    if (fallbackIntervalRef.current !== null) {
-      window.clearInterval(fallbackIntervalRef.current);
-      fallbackIntervalRef.current = null;
-    }
-  }, []);
-
   const fetchFeed = useCallback(
-    async (source: "initial" | "fallback" = "initial") => {
+    async (phase: "initial" | "poll" = "poll") => {
       try {
         const response = await fetch("/api/limitless/eth", { cache: "no-store" });
         const json = (await response.json()) as FeedResponse;
@@ -264,6 +259,7 @@ export default function TradePage() {
           .slice(-MAX_POINTS);
 
         setSeries(normalisedSeries);
+        setFeedSource(json.source);
         setBaseline(typeof json.strike === "number" && Number.isFinite(json.strike) ? json.strike : null);
         setClosesAt(
           typeof json.closesAt === "number" && Number.isFinite(json.closesAt) ? json.closesAt : null,
@@ -271,13 +267,16 @@ export default function TradePage() {
         setLastUpdated(Date.now());
         setError(null);
 
-        if (connected) {
-          setStatus("live");
-        } else if (source === "fallback") {
-          setStatus("fallback");
-        } else {
-          setStatus((prev) => (prev === "error" ? "fallback" : "connecting"));
-        }
+        const nextStatus =
+          json.source === "coingecko"
+            ? "fallback"
+            : connected
+            ? "live"
+            : phase === "initial"
+            ? "connecting"
+            : "fallback";
+
+        setStatus(nextStatus);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to load feed";
         setError(message);
@@ -286,18 +285,6 @@ export default function TradePage() {
     },
     [connected],
   );
-
-  const startFallback = useCallback(() => {
-    if (fallbackIntervalRef.current !== null) {
-      return;
-    }
-
-    void fetchFeed("fallback");
-    setStatus("fallback");
-    fallbackIntervalRef.current = window.setInterval(() => {
-      void fetchFeed("fallback");
-    }, FALLBACK_POLL_INTERVAL);
-  }, [fetchFeed]);
 
   const connectWebSocket = useCallback(() => {
     setStatus((prev) => (prev === "live" ? prev : "connecting"));
@@ -309,7 +296,6 @@ export default function TradePage() {
         setConnected(true);
         setStatus("live");
         setError(null);
-        stopFallback();
 
         const subscription = {
           type: "subscribe",
@@ -337,8 +323,7 @@ export default function TradePage() {
 
       ws.onerror = () => {
         setConnected(false);
-        setStatus("error");
-        startFallback();
+        setStatus("fallback");
         if (ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED) {
           ws.close();
         }
@@ -346,8 +331,7 @@ export default function TradePage() {
 
       ws.onclose = () => {
         setConnected(false);
-        setStatus((prev) => (prev === "error" ? prev : "fallback"));
-        startFallback();
+        setStatus("fallback");
         if (reconnectTimeoutRef.current === null) {
           reconnectTimeoutRef.current = window.setTimeout(() => {
             reconnectTimeoutRef.current = null;
@@ -358,8 +342,7 @@ export default function TradePage() {
     } catch (err) {
       console.error("WebSocket init error", err);
       setConnected(false);
-      setStatus("error");
-      startFallback();
+      setStatus("fallback");
       if (reconnectTimeoutRef.current === null) {
         reconnectTimeoutRef.current = window.setTimeout(() => {
           reconnectTimeoutRef.current = null;
@@ -367,14 +350,13 @@ export default function TradePage() {
         }, 3_000);
       }
     }
-  }, [appendPoint, startFallback, stopFallback]);
+  }, [appendPoint]);
 
   useEffect(() => {
-    void fetchFeed();
+    void fetchFeed("initial");
     connectWebSocket();
 
     return () => {
-      stopFallback();
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -384,7 +366,15 @@ export default function TradePage() {
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [connectWebSocket, fetchFeed, stopFallback]);
+  }, [connectWebSocket, fetchFeed]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void fetchFeed();
+    }, POLL_INTERVAL);
+
+    return () => window.clearInterval(interval);
+  }, [fetchFeed]);
 
   const chartData = useMemo(
     () =>
@@ -416,7 +406,9 @@ export default function TradePage() {
     status === "live"
       ? "Live · WebSocket"
       : status === "fallback"
-      ? "Fallback · REST"
+      ? feedSource === "coingecko"
+        ? "Fallback · CoinGecko"
+        : "Fallback · REST"
       : status === "error"
       ? "Error"
       : "Connecting";
@@ -450,6 +442,16 @@ export default function TradePage() {
               <div className={styles.metaItem}>
                 <span className={styles.metaLabel}>Updated</span>
                 <span className={styles.metaValue}>{lastUpdatedLabel}</span>
+              </div>
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>Source</span>
+                <span
+                  className={
+                    feedSource === "coingecko" ? styles.metaValueWarning : styles.metaValue
+                  }
+                >
+                  {feedSource === "coingecko" ? "CoinGecko fallback" : "Limitless"}
+                </span>
               </div>
               <span className={`${styles.statusPill} ${statusClass}`}>{statusLabel}</span>
             </div>
@@ -492,16 +494,16 @@ export default function TradePage() {
                 {strikeValue !== null ? (
                   <ReferenceLine
                     y={strikeValue}
-                    stroke="#ff6b6b"
+                    stroke="#ff4d4d"
                     strokeDasharray="6 4"
-                    label={{ value: "Strike", position: "right", fill: "#ff6b6b", fontSize: 11 }}
+                    label={{ value: "Strike", position: "right", fill: "#ff4d4d", fontSize: 11 }}
                   />
                 ) : null}
                 <Line
                   type="monotone"
                   dataKey="price"
-                  stroke="#00ffd0"
-                  strokeWidth={2.4}
+                  stroke="#39ff14"
+                  strokeWidth={2.6}
                   dot={false}
                   isAnimationActive={false}
                 />
@@ -530,7 +532,7 @@ export default function TradePage() {
         </div>
 
         <p className={styles.footerNote}>
-          Streaming via Limitless WebSocket · REST fallback every {FALLBACK_POLL_INTERVAL / 1000}s
+          Streaming via Limitless WebSocket · REST sync every {POLL_INTERVAL / 1000}s
         </p>
       </section>
     </div>

@@ -97,6 +97,12 @@
   color: rgba(245, 245, 245, 0.88);
 }
 
+.metaValueWarning {
+  font-family: var(--font-source-code-pro), monospace;
+  color: rgba(250, 204, 21, 0.92);
+  text-shadow: 0 0 12px rgba(250, 204, 21, 0.35);
+}
+
 .statusPill {
   margin-left: auto;
   padding: 0.3rem 0.9rem;
