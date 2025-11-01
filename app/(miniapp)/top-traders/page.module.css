@@ -1,154 +1,293 @@
 .page {
+  display: flex;
+  justify-content: center;
+  padding-block: 2rem;
+}
+
+.tradeCard {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  width: min(720px, 100%);
+  padding: 2rem;
+  border-radius: 1.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(160deg, rgba(255, 243, 90, 0.16) -20%, rgba(10, 10, 10, 0.92) 40%),
+    radial-gradient(circle at 15% -10%, rgba(255, 243, 90, 0.25), transparent 45%),
+    rgba(3, 3, 3, 0.92);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55), inset 0 0 38px rgba(255, 243, 90, 0.08);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
   gap: 1.5rem;
 }
 
-.statusRow {
+.priceBlock {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-radius: 0.75rem;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 0.85rem;
-  letter-spacing: 0.05em;
 }
 
-.statusIndicator {
-  width: 0.65rem;
-  height: 0.65rem;
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
   border-radius: 999px;
-  box-shadow: 0 0 12px currentColor;
-}
-
-.statusLabel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: rgba(245, 245, 245, 0.75);
 }
 
-.lastUpdated {
-  margin-left: auto;
-  color: rgba(245, 245, 245, 0.55);
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
-}
-
-.lastUpdated strong {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.titleBlock {
+.priceRow {
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.headline {
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-.subtitle {
-  font-size: 0.85rem;
-  color: rgba(245, 245, 245, 0.65);
-  max-width: 32rem;
-}
-
-.metricRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-}
-
-.metric {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.metricLabel {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: rgba(245, 245, 245, 0.55);
-}
-
-.metricValue {
-  font-size: 1.3rem;
-  font-family: var(--font-source-code-pro), monospace;
-  color: var(--accent);
-}
-
-.chartCard {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.chartHeader {
-  display: flex;
-  flex-direction: column;
+  align-items: baseline;
   gap: 0.75rem;
 }
 
-.chart {
-  width: 100%;
-  height: 320px;
-  padding: 1rem 1.25rem;
-  border-radius: 1.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: radial-gradient(circle at 20% 0%, rgba(255, 243, 90, 0.22), transparent 70%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(4, 4, 4, 0.35));
-  box-shadow: inset 0 0 35px rgba(255, 243, 90, 0.08);
-  overflow: hidden;
+.spot {
+  font-size: clamp(2.25rem, 5vw, 2.85rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  font-family: var(--font-source-code-pro), monospace;
 }
 
-.loading {
-  padding: 1.25rem;
-  border-radius: 1rem;
-  border: 1px dashed rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.02);
-  color: rgba(245, 245, 245, 0.7);
-  font-size: 0.85rem;
-  text-align: center;
+.delta {
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
   letter-spacing: 0.05em;
 }
 
-.notice {
+.positive {
+  color: #34d399;
+}
+
+.negative {
+  color: #f87171;
+}
+
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 0.8rem;
+  color: rgba(245, 245, 245, 0.6);
+}
+
+.metaLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(245, 245, 245, 0.45);
+}
+
+.metaValue {
+  font-family: var(--font-source-code-pro), monospace;
+  color: rgba(245, 245, 245, 0.85);
+}
+
+.statusPill {
+  margin-left: auto;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(245, 245, 245, 0.7);
+}
+
+.statusPill[data-state="live"] {
+  border-color: rgba(52, 211, 153, 0.55);
+  color: rgba(52, 211, 153, 0.85);
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.35);
+}
+
+.statusPill[data-state="cache"] {
+  border-color: rgba(250, 204, 21, 0.45);
+  color: rgba(250, 204, 21, 0.9);
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.2);
+}
+
+.statusPill[data-state="error"] {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: rgba(248, 113, 113, 0.9);
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.2);
+}
+
+.countdownBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 1.25rem;
+  border-radius: 1.25rem;
+  background: rgba(5, 5, 5, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 22px rgba(255, 243, 90, 0.08);
+}
+
+.countdownLabel {
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 245, 0.55);
+}
+
+.countdownValue {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  font-family: var(--font-source-code-pro), monospace;
+}
+
+.secondaryMeta {
+  font-size: 0.8rem;
+  color: rgba(245, 245, 245, 0.6);
+}
+
+.chartShell {
+  position: relative;
+  border-radius: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1.5rem 1rem 1.75rem;
+  background:
+    linear-gradient(180deg, rgba(12, 12, 12, 0.85), rgba(5, 5, 5, 0.9)),
+    radial-gradient(circle at 50% 0%, rgba(255, 243, 90, 0.18), transparent 65%);
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.errorBanner {
   padding: 0.85rem 1rem;
   border-radius: 0.85rem;
-  border: 1px solid rgba(250, 204, 21, 0.45);
-  background: rgba(250, 204, 21, 0.1);
-  color: rgba(250, 204, 21, 0.92);
-  font-size: 0.8rem;
-  letter-spacing: 0.04em;
-}
-
-.error {
-  padding: 1rem;
-  border-radius: 0.75rem;
-  border: 1px solid rgba(255, 100, 100, 0.4);
-  background: rgba(255, 80, 80, 0.08);
-  color: rgba(255, 180, 180, 0.9);
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: rgba(255, 188, 188, 0.92);
   font-size: 0.85rem;
+  text-align: center;
 }
 
-.actions {
+.loading {
+  padding: 1rem;
+  border-radius: 0.85rem;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  color: rgba(245, 245, 245, 0.75);
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.actionsRow {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
 
-@media (min-width: 640px) {
-  .actions {
+.sentimentCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 10, 10, 0.6);
+}
+
+.sentimentHeader {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 245, 0.75);
+}
+
+.sentimentTrack {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 0.6rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sentimentBull {
+  background: linear-gradient(90deg, rgba(52, 211, 153, 0.9), rgba(163, 230, 208, 0.85));
+  height: 100%;
+}
+
+.sentimentBear {
+  background: linear-gradient(90deg, rgba(248, 113, 113, 0.85), rgba(252, 165, 165, 0.75));
+  height: 100%;
+}
+
+.sentimentLegend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: rgba(245, 245, 245, 0.7);
+}
+
+.bullLabel {
+  color: rgba(110, 231, 183, 0.9);
+}
+
+.bearLabel {
+  color: rgba(248, 165, 165, 0.9);
+}
+
+.sentimentSummary {
+  font-size: 0.8rem;
+  color: rgba(245, 245, 245, 0.55);
+  letter-spacing: 0.05em;
+}
+
+@media (min-width: 720px) {
+  .header {
     flex-direction: row;
-    justify-content: flex-end;
+    align-items: stretch;
+    justify-content: space-between;
   }
 
-  .chartHeader {
+  .countdownBlock {
+    max-width: 220px;
+  }
+
+  .actionsRow {
     flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
+  }
+}
+
+@media (max-width: 640px) {
+  .tradeCard {
+    padding: 1.5rem;
+    border-radius: 1.5rem;
+  }
+
+  .countdownBlock {
+    padding: 0.85rem 1rem;
   }
 }

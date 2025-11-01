@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -11,6 +11,7 @@ import {
   Tooltip,
 } from "recharts";
 
+import fallbackData from "@/data/btc-fallback.json";
 import { Button } from "@/components/ui/button";
 
 import layoutStyles from "../layout.module.css";
@@ -30,11 +31,44 @@ type ChartPoint = {
 
 type Status = "loading" | "live" | "cache" | "error";
 
-const CACHE_KEY = "degen-terminal-pyth-btc-v1";
-const HISTORY_LIMIT = 12;
-const HOUR_MS = 3_600_000;
+type CachePayload = {
+  history: PricePoint[];
+  lastUpdated: number;
+};
 
-function formatUsd(value?: number | null): string {
+type FallbackShape = {
+  prices?: Array<{ timestamp: number; price: number }>;
+};
+
+const HOUR_MS = 3_600_000;
+const HISTORY_LIMIT = 12;
+const CACHE_KEY = "degen-terminal-pyth-btc-v3";
+
+const FALLBACK_SERIES: PricePoint[] = (() => {
+  const typed = fallbackData as FallbackShape;
+  const series = Array.isArray(typed.prices) ? typed.prices : [];
+  if (series.length === 0) {
+    return [];
+  }
+
+  const anchor = series.at(-1)?.timestamp ?? Date.now();
+  const offset = Date.now() - anchor;
+
+  return series
+    .map((point) => {
+      const timestamp = Number(point.timestamp) + offset;
+      const price = Number(point.price);
+      if (!Number.isFinite(timestamp) || !Number.isFinite(price)) {
+        return null;
+      }
+      return { timestamp, value: price } satisfies PricePoint;
+    })
+    .filter((point): point is PricePoint => point !== null)
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-HISTORY_LIMIT);
+})();
+
+function formatUsd(value?: number | null, options?: Intl.NumberFormatOptions): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "—";
   }
@@ -42,15 +76,33 @@ function formatUsd(value?: number | null): string {
   return `$${value.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+    ...options,
   })}`;
 }
 
-type CacheShape = {
-  history: PricePoint[];
-  lastUpdated: number | null;
-};
+function formatCountdown(ms: number | null): string {
+  if (ms === null) {
+    return "—";
+  }
 
-function loadCachedHistory(): CacheShape | null {
+  const safeMs = Math.max(0, ms);
+  const totalSeconds = Math.floor(safeMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+  }
+
+  return `${minutes.toString().padStart(2, "0")}m ${seconds.toString().padStart(2, "0")}s`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function loadCache(): CachePayload | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -61,15 +113,15 @@ function loadCachedHistory(): CacheShape | null {
       return null;
     }
 
-    const parsed = JSON.parse(raw) as Partial<CacheShape> & {
+    const parsed = JSON.parse(raw) as Partial<CachePayload> & {
       history?: Array<{ timestamp?: unknown; value?: unknown }>;
     };
 
     const history = Array.isArray(parsed.history)
       ? parsed.history
-          .map((item) => {
-            const timestamp = typeof item.timestamp === "number" ? item.timestamp : Number(item.timestamp);
-            const value = typeof item.value === "number" ? item.value : Number(item.value);
+          .map((point) => {
+            const timestamp = typeof point.timestamp === "number" ? point.timestamp : Number(point.timestamp);
+            const value = typeof point.value === "number" ? point.value : Number(point.value);
             if (!Number.isFinite(timestamp) || !Number.isFinite(value)) {
               return null;
             }
@@ -80,38 +132,26 @@ function loadCachedHistory(): CacheShape | null {
           .slice(-HISTORY_LIMIT)
       : [];
 
-    if (history.length === 0) {
+    if (history.length === 0 || typeof parsed.lastUpdated !== "number") {
       return null;
     }
 
-    const lastUpdated =
-      typeof parsed.lastUpdated === "number" && Number.isFinite(parsed.lastUpdated)
-        ? parsed.lastUpdated
-        : history.at(-1)?.timestamp ?? null;
-
-    return { history, lastUpdated };
+    return { history, lastUpdated: parsed.lastUpdated };
   } catch (err) {
-    console.error("Failed to load cached BTC history", err);
+    console.error("Failed to read cached BTC feed", err);
     return null;
   }
 }
 
-function saveCachedHistory(history: PricePoint[], lastUpdated: number | null): void {
+function persistCache(payload: CachePayload): void {
   if (typeof window === "undefined") {
     return;
   }
 
-  if (history.length === 0 || lastUpdated === null) {
-    return;
-  }
-
   try {
-    window.localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify({ history, lastUpdated }),
-    );
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
   } catch (err) {
-    console.error("Failed to persist BTC history", err);
+    console.error("Failed to persist BTC feed", err);
   }
 }
 
@@ -120,22 +160,22 @@ export default function TradePage() {
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const hasHistoryRef = useRef(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
 
   useEffect(() => {
-    hasHistoryRef.current = history.length > 0;
-  }, [history]);
-
-  useEffect(() => {
-    const cached = loadCachedHistory();
+    const cached = loadCache();
     if (cached) {
       setHistory(cached.history);
       setLastUpdated(cached.lastUpdated);
       setStatus("cache");
-      setError(null);
-      hasHistoryRef.current = true;
+    } else if (FALLBACK_SERIES.length > 0) {
+      setHistory(FALLBACK_SERIES);
+      setLastUpdated(FALLBACK_SERIES.at(-1)?.timestamp ?? null);
+      setStatus("cache");
     }
+  }, []);
 
+  useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
@@ -166,21 +206,23 @@ export default function TradePage() {
           throw new Error(message);
         }
 
-        let updatedHistory: PricePoint[] = [];
+        const nextPoint: PricePoint = {
+          timestamp: payload.timestamp,
+          value: payload.price,
+        };
+
         setHistory((prev) => {
-          const filtered = prev.filter((point) => point.timestamp !== payload.timestamp);
-          const candidate = [...filtered, { timestamp: payload.timestamp as number, value: payload.price as number }]
+          const filtered = prev.filter((point) => point.timestamp !== nextPoint.timestamp);
+          const candidate = [...filtered, nextPoint]
             .sort((a, b) => a.timestamp - b.timestamp)
             .slice(-HISTORY_LIMIT);
-          updatedHistory = candidate;
+          persistCache({ history: candidate, lastUpdated: nextPoint.timestamp });
           return candidate;
         });
 
-        setLastUpdated(payload.timestamp);
+        setLastUpdated(nextPoint.timestamp);
         setStatus("live");
         setError(null);
-        hasHistoryRef.current = true;
-        saveCachedHistory(updatedHistory, payload.timestamp);
       } catch (err) {
         if (cancelled) {
           return;
@@ -188,7 +230,7 @@ export default function TradePage() {
 
         const message = err instanceof Error ? err.message : "Unknown error";
         setError(message);
-        setStatus(hasHistoryRef.current ? "cache" : "error");
+        setStatus((prev) => (prev === "live" || prev === "cache" ? "cache" : "error"));
       }
     };
 
@@ -202,8 +244,24 @@ export default function TradePage() {
   }, []);
 
   useEffect(() => {
-    saveCachedHistory(history, lastUpdated);
-  }, [history, lastUpdated]);
+    if (lastUpdated === null) {
+      setCountdown(null);
+      return;
+    }
+
+    const tick = () => {
+      const now = Date.now();
+      const nextUpdate = lastUpdated + HOUR_MS;
+      setCountdown(Math.max(nextUpdate - now, 0));
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [lastUpdated]);
 
   const chartData = useMemo<ChartPoint[]>(() => {
     if (history.length === 0) {
@@ -222,83 +280,90 @@ export default function TradePage() {
     });
   }, [history]);
 
-  const latestPoint = chartData.at(-1);
+  const latestPoint = chartData.at(-1) ?? null;
+  const firstPoint = chartData[0] ?? null;
+
   const spotPrice = latestPoint?.price ?? null;
   const movingAverage = latestPoint?.movingAverage ?? null;
 
-  const statusColor =
-    status === "live"
-      ? "#4ade80"
-      : status === "cache"
-      ? "#facc15"
-      : status === "error"
-      ? "#f87171"
-      : "#facc15";
+  const changePct = useMemo(() => {
+    if (!latestPoint || !firstPoint || firstPoint.price === 0) {
+      return null;
+    }
+    const delta = ((latestPoint.price - firstPoint.price) / firstPoint.price) * 100;
+    return delta;
+  }, [firstPoint, latestPoint]);
+
+  const sentiment = useMemo(() => {
+    if (changePct === null || !Number.isFinite(changePct)) {
+      return { bulls: 50, bears: 50, summary: "Awaiting new activity" } as const;
+    }
+
+    const bulls = Math.round(clamp(50 + changePct * 2, 5, 95));
+    const bears = 100 - bulls;
+    const summary = changePct >= 0 ? "Traders leaning bullish" : "Defensive positioning rising";
+
+    return { bulls, bears, summary } as const;
+  }, [changePct]);
 
   const statusLabel =
     status === "live"
-      ? "Live data from Pyth Network"
+      ? "Live feed"
       : status === "cache"
-      ? "Showing cached Pyth data"
+      ? "Cached snapshot"
       : status === "error"
-      ? "Reconnecting…"
-      : "Updating feed…";
+      ? "Reconnecting"
+      : "Updating";
 
-  const formattedUpdatedAt = lastUpdated
-    ? new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : null;
-
-  const hasChartData = chartData.length > 0;
+  const hasChartData = chartData.length > 1;
 
   return (
     <div className={`${layoutStyles.page} ${styles.page}`}>
-      <div className={styles.statusRow}>
-        <span className={styles.statusIndicator} style={{ color: statusColor }} />
-        <span className={styles.statusLabel}>{statusLabel}</span>
-        {formattedUpdatedAt && (
-          <span className={styles.lastUpdated}>
-            Last update: <strong>{formattedUpdatedAt}</strong>
-          </span>
-        )}
-      </div>
-
-      <section className={`${layoutStyles.section} ${styles.chartCard}`}>
-        <div className={styles.chartHeader}>
-          <div className={styles.titleBlock}>
-            <span className={layoutStyles.badge}>BTC / USD Hourly · Pyth</span>
-            <h1 className={styles.headline}>BTC Market Pulse</h1>
-            <p className={styles.subtitle}>
-              Hourly oracle updates sourced from Pyth Network with a rolling 12-hour moving average.
-            </p>
-          </div>
-          <div className={styles.metricRow}>
-            <div className={styles.metric}>
-              <span className={styles.metricLabel}>Spot</span>
-              <span className={styles.metricValue}>{formatUsd(spotPrice)}</span>
+      <section className={styles.tradeCard}>
+        <header className={styles.header}>
+          <div className={styles.priceBlock}>
+            <span className={styles.badge}>BTC · PYTH ORACLE</span>
+            <div className={styles.priceRow}>
+              <span className={styles.spot}>{formatUsd(spotPrice)}</span>
+              {changePct !== null && Number.isFinite(changePct) && (
+                <span
+                  className={`${styles.delta} ${changePct >= 0 ? styles.positive : styles.negative}`}
+                >
+                  {changePct >= 0 ? "+" : ""}
+                  {changePct.toFixed(2)}%
+                </span>
+              )}
             </div>
-            <div className={styles.metric}>
-              <span className={styles.metricLabel}>12h Moving Avg</span>
-              <span className={styles.metricValue}>{formatUsd(movingAverage)}</span>
+            <div className={styles.metaRow}>
+              <span className={styles.metaLabel}>Updated</span>
+              <span className={styles.metaValue}>
+                {lastUpdated ? new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}
+              </span>
+              <span className={styles.statusPill} data-state={status}>
+                {statusLabel}
+              </span>
             </div>
           </div>
-        </div>
 
-        {error && status === "error" && (
-          <div className={styles.error}>Failed to refresh BTC oracle data: {error}</div>
-        )}
+          <div className={styles.countdownBlock}>
+            <span className={styles.countdownLabel}>Next oracle update</span>
+            <span className={styles.countdownValue}>{formatCountdown(countdown)}</span>
+            <span className={styles.secondaryMeta}>12h moving avg · {formatUsd(movingAverage)}</span>
+          </div>
+        </header>
 
-        {!hasChartData && status !== "error" && (
-          <div className={styles.loading}>Loading BTC oracle data…</div>
-        )}
+        <div className={styles.chartShell}>
+          {error && status === "error" && (
+            <div className={styles.errorBanner}>Failed to refresh BTC oracle data: {error}</div>
+          )}
 
-        {hasChartData && (
-          <div className={styles.chart}>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart
-                key={lastUpdated ?? chartData.length}
-                data={chartData}
-                margin={{ top: 10, right: 12, left: 0, bottom: 0 }}
-              >
+          {!hasChartData && status !== "error" && (
+            <div className={styles.loading}>Loading BTC oracle history…</div>
+          )}
+
+          {hasChartData && (
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={chartData} margin={{ top: 10, right: 12, left: -18, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.08)" />
                 <XAxis dataKey="time" stroke="rgba(255,255,255,0.45)" tickLine={false} axisLine={false} />
                 <YAxis
@@ -309,19 +374,14 @@ export default function TradePage() {
                 />
                 <Tooltip
                   contentStyle={{
-                    background: "rgba(10, 10, 10, 0.9)",
-                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "rgba(12, 12, 12, 0.94)",
+                    border: "1px solid rgba(255,255,255,0.12)",
                     borderRadius: "0.75rem",
-                    color: "#f5f5f5",
                     fontFamily: "var(--font-source-code-pro), monospace",
                     fontSize: "0.75rem",
+                    color: "#f5f5f5",
                   }}
-                  formatter={(value: number, label) => {
-                    if (label === "movingAverage") {
-                      return [`$${Number(value).toFixed(2)}`, "Moving Avg"];
-                    }
-                    return [`$${Number(value).toFixed(2)}`, "Price"];
-                  }}
+                  formatter={(value: number, key) => [`$${Number(value).toFixed(2)}`, key === "movingAverage" ? "Moving Avg" : "Price"]}
                   labelFormatter={(label: string, payload) => {
                     const item = payload?.[0];
                     if (item && "payload" in item && item.payload) {
@@ -335,7 +395,7 @@ export default function TradePage() {
                   type="monotone"
                   dataKey="price"
                   stroke="#fff35a"
-                  strokeWidth={2}
+                  strokeWidth={2.4}
                   dot={false}
                   isAnimationActive
                   animationDuration={800}
@@ -351,16 +411,29 @@ export default function TradePage() {
                 />
               </LineChart>
             </ResponsiveContainer>
-          </div>
-        )}
+          )}
+        </div>
 
-        <div className={styles.actions}>
-          <Button variant="default" size="lg">
-            Buy BTC Up
+        <div className={styles.actionsRow}>
+          <Button variant="default" size="lg" block>
+            Above {formatUsd(spotPrice, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </Button>
-          <Button variant="outline" size="lg">
-            Buy BTC Down
+          <Button variant="outline" size="lg" block>
+            Below {formatUsd(spotPrice, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </Button>
+        </div>
+
+        <div className={styles.sentimentCard}>
+          <div className={styles.sentimentHeader}>Community Sentiment</div>
+          <div className={styles.sentimentTrack}>
+            <div className={styles.sentimentBull} style={{ width: `${sentiment.bulls}%` }} />
+            <div className={styles.sentimentBear} style={{ width: `${sentiment.bears}%` }} />
+          </div>
+          <div className={styles.sentimentLegend}>
+            <span className={styles.bullLabel}>↑ {sentiment.bulls}% expect BTC to rise</span>
+            <span className={styles.bearLabel}>↓ {sentiment.bears}% hedging downside</span>
+          </div>
+          <p className={styles.sentimentSummary}>{sentiment.summary}</p>
         </div>
       </section>
     </div>

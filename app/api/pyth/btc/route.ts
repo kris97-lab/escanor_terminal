@@ -6,7 +6,7 @@ const ENDPOINT = `https://hermes.pyth.network/api/latest_price_feeds?ids[]=${BTC
 export async function GET() {
   try {
     const res = await fetch(ENDPOINT, {
-      next: { revalidate: 3600 },
+      cache: "no-store",
     });
 
     if (!res.ok) {
