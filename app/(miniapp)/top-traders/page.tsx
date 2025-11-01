@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -17,7 +17,12 @@ import { Button } from "@/components/ui/button";
 import layoutStyles from "../layout.module.css";
 import styles from "./page.module.css";
 
-type PricePoint = {
+type OraclePoint = {
+  timestamp: number;
+  value: number;
+};
+
+type MarketPoint = {
   timestamp: number;
   value: number;
 };
@@ -25,14 +30,15 @@ type PricePoint = {
 type ChartPoint = {
   timestamp: number;
   time: string;
-  price: number;
-  movingAverage: number;
+  oracle?: number;
+  market?: number;
 };
 
 type Status = "loading" | "live" | "cache" | "error";
 
 type CachePayload = {
-  history: PricePoint[];
+  oracleHistory: OraclePoint[];
+  marketHistory: MarketPoint[];
   lastUpdated: number;
 };
 
@@ -41,10 +47,11 @@ type FallbackShape = {
 };
 
 const HOUR_MS = 3_600_000;
-const HISTORY_LIMIT = 12;
-const CACHE_KEY = "degen-terminal-pyth-btc-v3";
+const ORACLE_HISTORY_LIMIT = 12;
+const MARKET_HISTORY_LIMIT = 48;
+const CACHE_KEY = "degen-terminal-btc-dual-oracle";
 
-const FALLBACK_SERIES: PricePoint[] = (() => {
+const FALLBACK_ORACLE: OraclePoint[] = (() => {
   const typed = fallbackData as FallbackShape;
   const series = Array.isArray(typed.prices) ? typed.prices : [];
   if (series.length === 0) {
@@ -61,12 +68,17 @@ const FALLBACK_SERIES: PricePoint[] = (() => {
       if (!Number.isFinite(timestamp) || !Number.isFinite(price)) {
         return null;
       }
-      return { timestamp, value: price } satisfies PricePoint;
+      return { timestamp, value: price } satisfies OraclePoint;
     })
-    .filter((point): point is PricePoint => point !== null)
+    .filter((point): point is OraclePoint => point !== null)
     .sort((a, b) => a.timestamp - b.timestamp)
-    .slice(-HISTORY_LIMIT);
+    .slice(-ORACLE_HISTORY_LIMIT);
 })();
+
+const FALLBACK_MARKET: MarketPoint[] = FALLBACK_ORACLE.map((point, index) => ({
+  timestamp: point.timestamp,
+  value: point.value * (index % 2 === 0 ? 0.998 : 1.002),
+})).slice(-MARKET_HISTORY_LIMIT);
 
 function formatUsd(value?: number | null, options?: Intl.NumberFormatOptions): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -102,6 +114,53 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function parseCachedSeries(input: unknown, limit: number): Array<{ timestamp: number; value: number }> {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return (input as Array<Record<string, unknown>>)
+    .map((entry) => {
+      const timestampValue = entry?.timestamp ?? entry?.time;
+      const rawTimestamp =
+        typeof timestampValue === "number"
+          ? timestampValue
+          : typeof timestampValue === "string"
+          ? Number(timestampValue)
+          : Number.NaN;
+
+      const fallbackTimestamp =
+        typeof timestampValue === "string" ? Date.parse(timestampValue) : Number.NaN;
+
+      const timestamp = Number.isFinite(rawTimestamp)
+        ? rawTimestamp
+        : Number.isFinite(fallbackTimestamp)
+        ? fallbackTimestamp
+        : Number.NaN;
+
+      const rawValueCandidate = entry?.["value"] ?? entry?.["price"] ?? entry?.["marketPrice"];
+      const rawValue =
+        typeof rawValueCandidate === "number"
+          ? rawValueCandidate
+          : typeof rawValueCandidate === "string"
+          ? Number(rawValueCandidate)
+          : Number.NaN;
+
+      const value = Number.isFinite(rawValue) ? Number(rawValue) : Number.NaN;
+
+      if (!Number.isFinite(timestamp) || !Number.isFinite(value)) {
+        return null;
+      }
+
+      const normalisedTimestamp = timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp;
+
+      return { timestamp: Math.trunc(normalisedTimestamp), value };
+    })
+    .filter((point): point is { timestamp: number; value: number } => point !== null)
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-limit);
+}
+
 function loadCache(): CachePayload | null {
   if (typeof window === "undefined") {
     return null;
@@ -114,31 +173,33 @@ function loadCache(): CachePayload | null {
     }
 
     const parsed = JSON.parse(raw) as Partial<CachePayload> & {
-      history?: Array<{ timestamp?: unknown; value?: unknown }>;
+      oracleHistory?: unknown;
+      marketHistory?: unknown;
     };
 
-    const history = Array.isArray(parsed.history)
-      ? parsed.history
-          .map((point) => {
-            const timestamp = typeof point.timestamp === "number" ? point.timestamp : Number(point.timestamp);
-            const value = typeof point.value === "number" ? point.value : Number(point.value);
-            if (!Number.isFinite(timestamp) || !Number.isFinite(value)) {
-              return null;
-            }
-            return { timestamp, value } satisfies PricePoint;
-          })
-          .filter((point): point is PricePoint => point !== null)
-          .sort((a, b) => a.timestamp - b.timestamp)
-          .slice(-HISTORY_LIMIT)
-      : [];
+    const oracleHistory = parseCachedSeries(parsed.oracleHistory, ORACLE_HISTORY_LIMIT);
+    const marketHistory = parseCachedSeries(parsed.marketHistory, MARKET_HISTORY_LIMIT);
 
-    if (history.length === 0 || typeof parsed.lastUpdated !== "number") {
+    if (oracleHistory.length === 0 && marketHistory.length === 0) {
       return null;
     }
 
-    return { history, lastUpdated: parsed.lastUpdated };
+    const candidateLastUpdated = Number(parsed.lastUpdated);
+    const lastUpdated = Number.isFinite(candidateLastUpdated)
+      ? candidateLastUpdated
+      : oracleHistory.at(-1)?.timestamp ?? null;
+
+    if (!Number.isFinite(lastUpdated ?? NaN)) {
+      return null;
+    }
+
+    return {
+      oracleHistory,
+      marketHistory,
+      lastUpdated: Number(lastUpdated),
+    } satisfies CachePayload;
   } catch (err) {
-    console.error("Failed to read cached BTC feed", err);
+    console.error("Failed to read cached BTC oracle snapshot", err);
     return null;
   }
 }
@@ -151,97 +212,164 @@ function persistCache(payload: CachePayload): void {
   try {
     window.localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
   } catch (err) {
-    console.error("Failed to persist BTC feed", err);
+    console.error("Failed to persist BTC oracle snapshot", err);
   }
 }
 
+function normaliseLimitlessSeries(limitless: unknown): MarketPoint[] {
+  if (!Array.isArray(limitless)) {
+    return [];
+  }
+
+  return (limitless as Array<Record<string, unknown>>)
+    .map((entry) => {
+      const timestampValue = entry?.timestamp;
+      const rawTimestamp =
+        typeof timestampValue === "number"
+          ? timestampValue
+          : typeof timestampValue === "string"
+          ? Number(timestampValue)
+          : Number.NaN;
+
+      const fallbackTimestamp =
+        typeof timestampValue === "string" ? Date.parse(timestampValue) : Number.NaN;
+
+      const timestamp = Number.isFinite(rawTimestamp)
+        ? rawTimestamp
+        : Number.isFinite(fallbackTimestamp)
+        ? fallbackTimestamp
+        : Number.NaN;
+
+      const rawPriceCandidate = entry?.["marketPrice"] ?? entry?.["price"] ?? entry?.["value"];
+      const rawPrice =
+        typeof rawPriceCandidate === "number"
+          ? rawPriceCandidate
+          : typeof rawPriceCandidate === "string"
+          ? Number(rawPriceCandidate)
+          : Number.NaN;
+
+      if (!Number.isFinite(timestamp) || !Number.isFinite(rawPrice)) {
+        return null;
+      }
+
+      const adjustedPrice = Number(rawPrice) < 10 ? Number(rawPrice) * 100 : Number(rawPrice);
+
+      const normalisedTimestamp = timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp;
+
+      return { timestamp: Math.trunc(normalisedTimestamp), value: adjustedPrice } satisfies MarketPoint;
+    })
+    .filter((point): point is MarketPoint => point !== null)
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-MARKET_HISTORY_LIMIT);
+}
+
 export default function TradePage() {
-  const [history, setHistory] = useState<PricePoint[]>([]);
+  const [oracleHistory, setOracleHistory] = useState<OraclePoint[]>([]);
+  const [marketHistory, setMarketHistory] = useState<MarketPoint[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
 
+  const oracleRef = useRef<OraclePoint[]>([]);
+  const marketRef = useRef<MarketPoint[]>([]);
+
+  useEffect(() => {
+    oracleRef.current = oracleHistory;
+  }, [oracleHistory]);
+
+  useEffect(() => {
+    marketRef.current = marketHistory;
+  }, [marketHistory]);
+
   useEffect(() => {
     const cached = loadCache();
     if (cached) {
-      setHistory(cached.history);
+      setOracleHistory(cached.oracleHistory);
+      setMarketHistory(cached.marketHistory);
       setLastUpdated(cached.lastUpdated);
       setStatus("cache");
-    } else if (FALLBACK_SERIES.length > 0) {
-      setHistory(FALLBACK_SERIES);
-      setLastUpdated(FALLBACK_SERIES.at(-1)?.timestamp ?? null);
+      return;
+    }
+
+    if (FALLBACK_ORACLE.length > 0) {
+      setOracleHistory(FALLBACK_ORACLE);
+      setMarketHistory(FALLBACK_MARKET);
+      setLastUpdated(FALLBACK_ORACLE.at(-1)?.timestamp ?? null);
       setStatus("cache");
     }
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
+  const fetchFeeds = useCallback(async () => {
+    try {
+      setStatus((prev) => (prev === "live" ? "live" : "loading"));
 
-    const load = async () => {
-      try {
-        if (!cancelled) {
-          setStatus((prev) => (prev === "live" ? prev : "loading"));
-        }
+      const response = await fetch("/api/oracle/btc", { cache: "no-store" });
+      const payload = (await response.json()) as {
+        pyth?: { price?: unknown; timestamp?: unknown };
+        limitless?: unknown;
+        error?: string;
+      };
 
-        const response = await fetch("/api/pyth/btc", { cache: "no-store" });
-        const payload = (await response.json()) as {
-          price?: unknown;
-          timestamp?: unknown;
-          error?: string;
-        };
-
-        if (cancelled) {
-          return;
-        }
-
-        if (
-          !response.ok ||
-          typeof payload.price !== "number" ||
-          !Number.isFinite(payload.price) ||
-          typeof payload.timestamp !== "number" ||
-          !Number.isFinite(payload.timestamp)
-        ) {
-          const message = payload.error ?? `Pyth API ${response.status}`;
-          throw new Error(message);
-        }
-
-        const nextPoint: PricePoint = {
-          timestamp: payload.timestamp,
-          value: payload.price,
-        };
-
-        setHistory((prev) => {
-          const filtered = prev.filter((point) => point.timestamp !== nextPoint.timestamp);
-          const candidate = [...filtered, nextPoint]
-            .sort((a, b) => a.timestamp - b.timestamp)
-            .slice(-HISTORY_LIMIT);
-          persistCache({ history: candidate, lastUpdated: nextPoint.timestamp });
-          return candidate;
-        });
-
-        setLastUpdated(nextPoint.timestamp);
-        setStatus("live");
-        setError(null);
-      } catch (err) {
-        if (cancelled) {
-          return;
-        }
-
-        const message = err instanceof Error ? err.message : "Unknown error";
-        setError(message);
-        setStatus((prev) => (prev === "live" || prev === "cache" ? "cache" : "error"));
+      if (
+        !response.ok ||
+        typeof payload?.pyth?.price !== "number" ||
+        !Number.isFinite(payload.pyth.price) ||
+        typeof payload.pyth.timestamp !== "number" ||
+        !Number.isFinite(payload.pyth.timestamp)
+      ) {
+        const message = payload?.error ?? `Oracle API ${response.status}`;
+        throw new Error(message);
       }
-    };
 
-    void load();
-    const interval = window.setInterval(load, HOUR_MS);
+      const oraclePoint: OraclePoint = {
+        timestamp: Math.trunc(payload.pyth.timestamp),
+        value: payload.pyth.price,
+      };
 
+      const nextOracleHistory = (() => {
+        const deduped = oracleRef.current.filter((point) => point.timestamp !== oraclePoint.timestamp);
+        return [...deduped, oraclePoint]
+          .sort((a, b) => a.timestamp - b.timestamp)
+          .slice(-ORACLE_HISTORY_LIMIT);
+      })();
+
+      const nextMarketHistory = (() => {
+        const normalised = normaliseLimitlessSeries(payload.limitless);
+        if (normalised.length === 0) {
+          return marketRef.current;
+        }
+        return normalised;
+      })();
+
+      setOracleHistory(nextOracleHistory);
+      setMarketHistory(nextMarketHistory);
+      oracleRef.current = nextOracleHistory;
+      marketRef.current = nextMarketHistory;
+
+      setLastUpdated(oraclePoint.timestamp);
+      setStatus("live");
+      setError(null);
+
+      persistCache({
+        oracleHistory: nextOracleHistory,
+        marketHistory: nextMarketHistory,
+        lastUpdated: oraclePoint.timestamp,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(message);
+      setStatus(oracleRef.current.length > 0 || marketRef.current.length > 0 ? "cache" : "error");
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchFeeds();
+    const interval = window.setInterval(fetchFeeds, HOUR_MS);
     return () => {
-      cancelled = true;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [fetchFeeds]);
 
   useEffect(() => {
     if (lastUpdated === null) {
@@ -257,72 +385,130 @@ export default function TradePage() {
 
     tick();
     const timer = window.setInterval(tick, 1000);
-
     return () => {
       window.clearInterval(timer);
     };
   }, [lastUpdated]);
 
   const chartData = useMemo<ChartPoint[]>(() => {
-    if (history.length === 0) {
+    if (oracleHistory.length === 0 && marketHistory.length === 0) {
       return [];
     }
 
-    return history.map((point, index, arr) => {
-      const slice = arr.slice(Math.max(0, index - HISTORY_LIMIT + 1), index + 1);
-      const movingAverage = slice.reduce((total, item) => total + item.value, 0) / Math.max(slice.length, 1);
+    const map = new Map<number, { oracle?: number; market?: number }>();
+
+    for (const point of marketHistory) {
+      const entry = map.get(point.timestamp) ?? {};
+      entry.market = point.value;
+      map.set(point.timestamp, entry);
+    }
+
+    for (const point of oracleHistory) {
+      const entry = map.get(point.timestamp) ?? {};
+      entry.oracle = point.value;
+      map.set(point.timestamp, entry);
+    }
+
+    const sorted = Array.from(map.entries())
+      .map(([timestamp, value]) => ({ timestamp, ...value }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    let lastOracle: number | undefined;
+
+    return sorted.map((entry) => {
+      if (typeof entry.oracle === "number") {
+        lastOracle = entry.oracle;
+      }
+
+      const oracle = typeof entry.oracle === "number" ? entry.oracle : lastOracle;
+
       return {
-        timestamp: point.timestamp,
-        time: new Date(point.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        price: point.value,
-        movingAverage,
+        timestamp: entry.timestamp,
+        time: new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        oracle,
+        market: typeof entry.market === "number" ? entry.market : undefined,
       } satisfies ChartPoint;
     });
-  }, [history]);
+  }, [marketHistory, oracleHistory]);
 
-  const latestPoint = chartData.at(-1) ?? null;
-  const firstPoint = chartData[0] ?? null;
-
-  const spotPrice = latestPoint?.price ?? null;
-  const movingAverage = latestPoint?.movingAverage ?? null;
-
-  const changePct = useMemo(() => {
-    if (!latestPoint || !firstPoint || firstPoint.price === 0) {
+  const spotPrice = oracleHistory.at(-1)?.value ?? null;
+  const movingAverage = useMemo(() => {
+    if (oracleHistory.length === 0) {
       return null;
     }
-    const delta = ((latestPoint.price - firstPoint.price) / firstPoint.price) * 100;
-    return delta;
-  }, [firstPoint, latestPoint]);
+    const slice = oracleHistory.slice(-ORACLE_HISTORY_LIMIT);
+    const total = slice.reduce((sum, point) => sum + point.value, 0);
+    return total / slice.length;
+  }, [oracleHistory]);
 
-  const sentiment = useMemo(() => {
-    if (changePct === null || !Number.isFinite(changePct)) {
-      return { bulls: 50, bears: 50, summary: "Awaiting new activity" } as const;
+  const changePct = useMemo(() => {
+    if (oracleHistory.length < 2) {
+      return null;
     }
+    const first = oracleHistory[0];
+    const last = oracleHistory[oracleHistory.length - 1];
+    if (!first || !last || first.value === 0) {
+      return null;
+    }
+    return ((last.value - first.value) / first.value) * 100;
+  }, [oracleHistory]);
 
-    const bulls = Math.round(clamp(50 + changePct * 2, 5, 95));
-    const bears = 100 - bulls;
-    const summary = changePct >= 0 ? "Traders leaning bullish" : "Defensive positioning rising";
+  const latestMarketPrice = marketHistory.at(-1)?.value ?? null;
+  const marketDisplayPrice =
+    latestMarketPrice !== null && latestMarketPrice > 1000 ? latestMarketPrice : null;
 
-    return { bulls, bears, summary } as const;
-  }, [changePct]);
+  const basisSpread =
+    spotPrice !== null && marketDisplayPrice !== null && spotPrice > 0
+      ? ((marketDisplayPrice - spotPrice) / spotPrice) * 100
+      : null;
 
   const statusLabel =
     status === "live"
-      ? "Live feed"
+      ? "Dual feed live"
       : status === "cache"
       ? "Cached snapshot"
       : status === "error"
       ? "Reconnecting"
       : "Updating";
 
-  const hasChartData = chartData.length > 1;
+  const hasChartData = chartData.length > 1 && chartData.some((point) => {
+    const oracleOk = typeof point.oracle === "number" && Number.isFinite(point.oracle);
+    const marketOk = typeof point.market === "number" && Number.isFinite(point.market);
+    return oracleOk || marketOk;
+  });
+
+  const spreadLabel =
+    basisSpread !== null && Number.isFinite(basisSpread)
+      ? `${basisSpread >= 0 ? "+" : ""}${basisSpread.toFixed(2)}%`
+      : null;
+
+  const sentiment = useMemo(() => {
+    if (basisSpread !== null && Number.isFinite(basisSpread)) {
+      const bulls = Math.round(clamp(50 + basisSpread * 5, 5, 95));
+      const bears = 100 - bulls;
+      const summary =
+        basisSpread >= 0
+          ? "Limitless market pricing upside premium"
+          : "Limitless market hedging downside";
+      return { bulls, bears, summary } as const;
+    }
+
+    if (changePct !== null && Number.isFinite(changePct)) {
+      const bulls = Math.round(clamp(50 + changePct * 2, 5, 95));
+      const bears = 100 - bulls;
+      const summary = changePct >= 0 ? "Traders leaning bullish" : "Defensive positioning rising";
+      return { bulls, bears, summary } as const;
+    }
+
+    return { bulls: 50, bears: 50, summary: "Awaiting oracle confirmation" } as const;
+  }, [basisSpread, changePct]);
 
   return (
     <div className={`${layoutStyles.page} ${styles.page}`}>
       <section className={styles.tradeCard}>
         <header className={styles.header}>
           <div className={styles.priceBlock}>
-            <span className={styles.badge}>BTC · PYTH ORACLE</span>
+            <span className={styles.badge}>BTC · DUAL ORACLE</span>
             <div className={styles.priceRow}>
               <span className={styles.spot}>{formatUsd(spotPrice)}</span>
               {changePct !== null && Number.isFinite(changePct) && (
@@ -337,8 +523,16 @@ export default function TradePage() {
             <div className={styles.metaRow}>
               <span className={styles.metaLabel}>Updated</span>
               <span className={styles.metaValue}>
-                {lastUpdated ? new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}
+                {lastUpdated
+                  ? new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                  : "—"}
               </span>
+              {marketDisplayPrice !== null && (
+                <>
+                  <span className={styles.metaLabel}>Limitless</span>
+                  <span className={styles.metaValue}>{formatUsd(marketDisplayPrice)}</span>
+                </>
+              )}
               <span className={styles.statusPill} data-state={status}>
                 {statusLabel}
               </span>
@@ -348,17 +542,20 @@ export default function TradePage() {
           <div className={styles.countdownBlock}>
             <span className={styles.countdownLabel}>Next oracle update</span>
             <span className={styles.countdownValue}>{formatCountdown(countdown)}</span>
-            <span className={styles.secondaryMeta}>12h moving avg · {formatUsd(movingAverage)}</span>
+            <span className={styles.secondaryMeta}>
+              12h moving avg · {formatUsd(movingAverage)}
+              {spreadLabel ? ` · Spread ${spreadLabel}` : ""}
+            </span>
           </div>
         </header>
 
         <div className={styles.chartShell}>
           {error && status === "error" && (
-            <div className={styles.errorBanner}>Failed to refresh BTC oracle data: {error}</div>
+            <div className={styles.errorBanner}>Failed to refresh oracle feeds: {error}</div>
           )}
 
           {!hasChartData && status !== "error" && (
-            <div className={styles.loading}>Loading BTC oracle history…</div>
+            <div className={styles.loading}>Syncing oracle feeds…</div>
           )}
 
           {hasChartData && (
@@ -381,7 +578,18 @@ export default function TradePage() {
                     fontSize: "0.75rem",
                     color: "#f5f5f5",
                   }}
-                  formatter={(value: number, key) => [`$${Number(value).toFixed(2)}`, key === "movingAverage" ? "Moving Avg" : "Price"]}
+                  formatter={(value: number | string | Array<number | string>, key) => {
+                    if (typeof value !== "number") {
+                      return ["—", key];
+                    }
+                    const label =
+                      key === "oracle"
+                        ? "Pyth Oracle"
+                        : key === "market"
+                        ? "Limitless Market"
+                        : key;
+                    return [`$${Number(value).toFixed(2)}`, label];
+                  }}
                   labelFormatter={(label: string, payload) => {
                     const item = payload?.[0];
                     if (item && "payload" in item && item.payload) {
@@ -393,7 +601,7 @@ export default function TradePage() {
                 />
                 <Line
                   type="monotone"
-                  dataKey="price"
+                  dataKey="oracle"
                   stroke="#fff35a"
                   strokeWidth={2.4}
                   dot={false}
@@ -403,11 +611,13 @@ export default function TradePage() {
                 />
                 <Line
                   type="monotone"
-                  dataKey="movingAverage"
-                  stroke="#38bdf8"
+                  dataKey="market"
+                  stroke="#00ffd1"
                   strokeWidth={2}
                   dot={false}
-                  strokeDasharray="6 4"
+                  isAnimationActive
+                  animationDuration={800}
+                  strokeDasharray="6 3"
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -430,7 +640,7 @@ export default function TradePage() {
             <div className={styles.sentimentBear} style={{ width: `${sentiment.bears}%` }} />
           </div>
           <div className={styles.sentimentLegend}>
-            <span className={styles.bullLabel}>↑ {sentiment.bulls}% expect BTC to rise</span>
+            <span className={styles.bullLabel}>↑ {sentiment.bulls}% favour upside</span>
             <span className={styles.bearLabel}>↓ {sentiment.bears}% hedging downside</span>
           </div>
           <p className={styles.sentimentSummary}>{sentiment.summary}</p>
