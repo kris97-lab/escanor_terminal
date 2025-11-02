@@ -1,0 +1,28 @@
+{
+  "prices": [
+    { "timestamp": 1761837743289, "time": "03:22 PM", "price": 27721.25 },
+    { "timestamp": 1761841343289, "time": "04:22 PM", "price": 27653.75 },
+    { "timestamp": 1761844943289, "time": "05:22 PM", "price": 27538.49 },
+    { "timestamp": 1761848543289, "time": "06:22 PM", "price": 27387.08 },
+    { "timestamp": 1761852143289, "time": "07:22 PM", "price": 27215.06 },
+    { "timestamp": 1761855743289, "time": "08:22 PM", "price": 27040.29 },
+    { "timestamp": 1761859343289, "time": "09:22 PM", "price": 26880.9 },
+    { "timestamp": 1761862943289, "time": "10:22 PM", "price": 26753.34 },
+    { "timestamp": 1761866543289, "time": "11:22 PM", "price": 26670.54 },
+    { "timestamp": 1761870143289, "time": "12:22 AM", "price": 26640.52 },
+    { "timestamp": 1761873743289, "time": "01:22 AM", "price": 26665.49 },
+    { "timestamp": 1761877343289, "time": "02:22 AM", "price": 26741.6 },
+    { "timestamp": 1761880943289, "time": "03:22 AM", "price": 26859.36 },
+    { "timestamp": 1761884543289, "time": "04:22 AM", "price": 27004.72 },
+    { "timestamp": 1761888143289, "time": "05:22 AM", "price": 27160.56 },
+    { "timestamp": 1761891743289, "time": "06:22 AM", "price": 27308.64 },
+    { "timestamp": 1761895343289, "time": "07:22 AM", "price": 27431.54 },
+    { "timestamp": 1761898943289, "time": "08:22 AM", "price": 27514.65 },
+    { "timestamp": 1761902543289, "time": "09:22 AM", "price": 27547.7 },
+    { "timestamp": 1761906143289, "time": "10:22 AM", "price": 27525.97 },
+    { "timestamp": 1761909743289, "time": "11:22 AM", "price": 27450.74 },
+    { "timestamp": 1761913343289, "time": "12:22 PM", "price": 27329.18 },
+    { "timestamp": 1761916943289, "time": "01:22 PM", "price": 27173.6 },
+    { "timestamp": 1761920543289, "time": "02:22 PM", "price": 27000 }
+  ]
+}

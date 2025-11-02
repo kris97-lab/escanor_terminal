@@ -1,0 +1,221 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 2rem clamp(1.25rem, 4vw, 2.5rem);
+  border-radius: 1.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(165deg, rgba(255, 243, 90, 0.16) -10%, rgba(6, 6, 6, 0.96) 45%),
+    radial-gradient(circle at 15% -15%, rgba(255, 243, 90, 0.24), transparent 48%),
+    rgba(3, 3, 3, 0.94);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55), inset 0 0 38px rgba(255, 243, 90, 0.08);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.priceBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 245, 0.72);
+}
+
+.priceRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.spot {
+  font-size: clamp(2.25rem, 5vw, 2.85rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  font-family: var(--font-source-code-pro), monospace;
+}
+
+.delta {
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  letter-spacing: 0.05em;
+}
+
+.positive {
+  color: #34d399;
+}
+
+.negative {
+  color: #f87171;
+}
+
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.metaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.metaLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.65rem;
+  color: rgba(245, 245, 245, 0.45);
+}
+
+.metaValue {
+  font-family: var(--font-source-code-pro), monospace;
+  color: rgba(245, 245, 245, 0.88);
+}
+
+.metaValueWarning {
+  font-family: var(--font-source-code-pro), monospace;
+  color: rgba(250, 204, 21, 0.92);
+  text-shadow: 0 0 12px rgba(250, 204, 21, 0.35);
+}
+
+.statusPill {
+  margin-left: auto;
+  padding: 0.3rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(5, 5, 5, 0.6);
+  color: rgba(245, 245, 245, 0.7);
+}
+
+.statusLive {
+  border-color: rgba(52, 211, 153, 0.55);
+  color: rgba(52, 211, 153, 0.88);
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.35);
+}
+
+.statusError {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: rgba(248, 113, 113, 0.92);
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.28);
+}
+
+.statusLoading {
+  border-color: rgba(250, 204, 21, 0.4);
+  color: rgba(250, 204, 21, 0.85);
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.2);
+}
+
+.chartShell {
+  position: relative;
+  border-radius: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1.5rem 1rem 1.75rem;
+  background:
+    linear-gradient(180deg, rgba(12, 12, 12, 0.88), rgba(5, 5, 5, 0.92)),
+    radial-gradient(circle at 50% 0%, rgba(255, 243, 90, 0.16), transparent 65%);
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.errorBanner {
+  padding: 0.85rem 1rem;
+  border-radius: 0.85rem;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: rgba(255, 188, 188, 0.92);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.loading {
+  padding: 1rem;
+  border-radius: 0.85rem;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  color: rgba(245, 245, 245, 0.75);
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.actionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.actionsRow :global(button) {
+  flex: 1 1 220px;
+}
+
+.aboveActive {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.95), rgba(16, 185, 129, 0.85)) !important;
+  color: #03160e !important;
+  box-shadow: 0 14px 30px rgba(52, 211, 153, 0.35) !important;
+}
+
+.belowActive {
+  background: rgba(248, 113, 113, 0.14) !important;
+  color: rgba(252, 165, 165, 0.95) !important;
+  border-color: rgba(248, 113, 113, 0.65) !important;
+  box-shadow: 0 14px 30px rgba(248, 113, 113, 0.25) !important;
+}
+
+.footerNote {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: rgba(245, 245, 245, 0.55);
+  text-align: center;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 1.75rem 1.25rem;
+    border-radius: 1.5rem;
+  }
+
+  .statusPill {
+    margin-left: 0;
+  }
+}

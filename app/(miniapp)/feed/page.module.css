@@ -1,0 +1,227 @@
+.page {
+  gap: 1.75rem;
+  font-family: var(--font-source-code-pro), monospace;
+  color: #f8f8f8;
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.kicker {
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(248, 255, 42, 0.85);
+}
+
+.title {
+  font-size: 2.05rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.subtitle {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.95rem;
+  max-width: 32rem;
+  line-height: 1.6;
+}
+
+.panel {
+  background: rgba(4, 4, 4, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.15rem;
+  padding: 1.25rem 1.1rem 1.5rem;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.statusIndicator {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: rgba(248, 255, 42, 0.55);
+  box-shadow: 0 0 6px rgba(248, 255, 42, 0.75);
+}
+
+.loading {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.connected {
+  background: rgba(248, 255, 42, 0.9);
+}
+
+.error {
+  background: rgba(255, 82, 82, 0.75);
+  box-shadow: 0 0 12px rgba(255, 82, 82, 0.8);
+}
+
+.statusText {
+  flex: 1;
+}
+
+.timestamp {
+  font-variant-numeric: tabular-nums;
+  color: rgba(248, 255, 42, 0.75);
+}
+
+.feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.entryLink,
+.entryWrapper {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+
+.entry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 1rem 0.95rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(95deg, rgba(14, 14, 14, 0.96), rgba(5, 5, 5, 0.93));
+  transition: transform 0.2s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.entryLink:hover .entry,
+.entryWrapper:hover .entry {
+  transform: translateY(-2px);
+  border-color: rgba(248, 255, 42, 0.4);
+  box-shadow: 0 14px 45px rgba(0, 0, 0, 0.6);
+}
+
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.market {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.arrow {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.outcome {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.amount {
+  font-variant-numeric: tabular-nums;
+  color: rgba(200, 200, 200, 0.75);
+}
+
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.time {
+  font-variant-numeric: tabular-nums;
+}
+
+.trader {
+  font-variant-numeric: tabular-nums;
+}
+
+.standardTrade {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  color: rgba(223, 223, 223, 0.75);
+}
+
+.standardTrade .amount {
+  color: rgba(190, 190, 190, 0.7);
+}
+
+.hugeTrade {
+  border-color: rgba(248, 255, 42, 0.9);
+  box-shadow: 0 0 1.4rem rgba(248, 255, 42, 0.65), inset 0 0 0 1px rgba(248, 255, 42, 0.45);
+  color: rgba(248, 255, 226, 0.95);
+}
+
+.hugeTrade .amount {
+  color: rgba(248, 255, 42, 0.92);
+  text-shadow: 0 0 10px rgba(248, 255, 42, 0.85);
+}
+
+.entryEnter {
+  animation: slideIn 0.55s ease forwards;
+}
+
+.emptyState {
+  text-align: center;
+  padding: 1.25rem 1rem;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.9rem;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 0.9rem;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.5;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes slideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (min-width: 768px) {
+  .title {
+    font-size: 2.35rem;
+  }
+
+  .entry {
+    padding: 1.1rem 1.2rem;
+  }
+}
