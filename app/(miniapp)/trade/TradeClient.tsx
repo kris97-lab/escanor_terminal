@@ -27,6 +27,13 @@ const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
+const preciseCurrencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
   minute: "2-digit",
@@ -390,11 +397,25 @@ function formatCountdown(expiration: number | null): string {
     .padStart(2, "0")} secs`;
 }
 
-function formatDelta(current: number, previous: number): string {
-  const delta = current - previous;
-  const percent = previous !== 0 ? (delta / previous) * 100 : 0;
-  const sign = delta >= 0 ? "↑" : "↓";
-  return `${sign} ${Math.abs(delta).toFixed(2)} (${percent.toFixed(2)}%)`;
+function formatBaselineDelta(current: number, baseline: number): {
+  direction: "up" | "down";
+  text: string;
+} {
+  if (!Number.isFinite(current) || !Number.isFinite(baseline) || baseline === 0) {
+    return { direction: "up", text: "—" };
+  }
+
+  const delta = current - baseline;
+  const direction = delta >= 0 ? "up" : "down";
+  const absoluteDelta = Math.abs(delta);
+  const percent = (absoluteDelta / baseline) * 100;
+  const percentLabel = `${direction === "up" ? "+" : "-"}${percent.toFixed(2)}%`;
+  const arrow = direction === "up" ? "↑" : "↓";
+
+  return {
+    direction,
+    text: `${arrow} ${currencyFormatter.format(absoluteDelta)} (${percentLabel})`,
+  };
 }
 
 function WalletBadge() {
@@ -404,10 +425,10 @@ function WalletBadge() {
         <button
           type="button"
           onClick={onClick}
-          className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.25em] text-white transition hover:border-white/30"
+          className="flex items-center gap-2 rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.28em] text-white transition hover:border-white/25"
           disabled={isLoading}
         >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-sm text-white">💰</span>
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-sm text-white">👛</span>
           <span>{status === "connected" ? "0.24 USD" : "Connect"}</span>
         </button>
       )}
@@ -415,49 +436,43 @@ function WalletBadge() {
   );
 }
 
-function StatBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[0.6rem] uppercase tracking-[0.28em] text-white/50">{label}</span>
-      <span className="font-mono text-sm text-white">{value}</span>
-    </div>
-  );
-}
-
 function PositionCard({ position }: { position: PositionSnapshot }) {
+  const arrow = position.direction === "up" ? "↑" : "↓";
+  const arrowColor = position.direction === "up" ? "text-emerald-300" : "text-red-400";
+  const pnlColor = position.pnlPercent >= 0 ? "text-emerald-300" : "text-red-400";
+
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/5/10 p-5 text-left shadow-[0_0_45px_rgba(16,185,129,0.15)] backdrop-blur">
+    <div className="rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(255,243,90,0.12),transparent_55%),rgba(6,6,6,0.92)] p-6 text-left shadow-[0_28px_60px_rgba(0,0,0,0.45)]">
       <div className="flex items-center justify-between">
-        <span className="text-xs uppercase tracking-[0.3em] text-white/60">Active bet</span>
-        <span className="text-sm font-semibold text-red-400">
+        <span className="text-xl font-semibold tracking-tight text-white">
+          <span className={`mr-2 text-2xl ${arrowColor}`}>{arrow}</span>
+          {position.statement}
+        </span>
+        <span className={`text-sm font-semibold ${pnlColor}`}>
           {position.pnlPercent > 0 ? "+" : ""}
           {position.pnlPercent.toFixed(1)}%
         </span>
       </div>
-      <div className="mt-2 flex items-center gap-2 text-lg font-semibold text-white">
-        <span className="text-emerald-300 text-xl">↑</span>
-        <span>{position.statement}</span>
-      </div>
-      <dl className="mt-4 grid grid-cols-2 gap-4 text-sm">
+      <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
         <div className="space-y-1">
-          <dt className="text-[0.6rem] uppercase tracking-[0.28em] text-white/45">Investment</dt>
-          <dd className="font-mono text-white">{currencyFormatter.format(position.investment)}</dd>
+          <div className="text-[0.6rem] uppercase tracking-[0.28em] text-white/45">Investment</div>
+          <div className="font-mono text-white">{currencyFormatter.format(position.investment)}</div>
         </div>
         <div className="space-y-1">
-          <dt className="text-[0.6rem] uppercase tracking-[0.28em] text-white/45">Current value</dt>
-          <dd className="font-mono text-white">{currencyFormatter.format(position.currentValue)}</dd>
+          <div className="text-[0.6rem] uppercase tracking-[0.28em] text-white/45">Current value</div>
+          <div className="font-mono text-white">{preciseCurrencyFormatter.format(position.currentValue)}</div>
         </div>
         <div className="space-y-1">
-          <dt className="text-[0.6rem] uppercase tracking-[0.28em] text-white/45">If you&apos;re right</dt>
-          <dd className="font-mono text-emerald-300">
+          <div className="text-[0.6rem] uppercase tracking-[0.28em] text-white/45">If you&apos;re right</div>
+          <div className="font-mono text-emerald-300">
             {currencyFormatter.format(position.payout)}
-          </dd>
+          </div>
         </div>
         <div className="space-y-1">
-          <dt className="text-[0.6rem] uppercase tracking-[0.28em] text-white/45">Direction</dt>
-          <dd className="font-mono text-white uppercase">{position.direction}</dd>
+          <div className="text-[0.6rem] uppercase tracking-[0.28em] text-white/45">Direction</div>
+          <div className="font-mono text-white uppercase">{position.direction}</div>
         </div>
-      </dl>
+      </div>
     </div>
   );
 }
@@ -502,8 +517,58 @@ export default function TradeClient({ initialSnapshot, slug }: TradeClientProps)
 
   const chartData = useMemo<ChartDatum[]>(() => toChartData(pricePoints), [pricePoints]);
 
-  const trendLabel = useMemo(() => formatDelta(currentPrice, previousPrice), [currentPrice, previousPrice]);
-  const isUp = currentPrice >= previousPrice;
+  const baselineTrend = useMemo(
+    () => formatBaselineDelta(currentPrice, baseline ?? currentPrice),
+    [baseline, currentPrice],
+  );
+  const isAboveBaseline = baselineTrend.direction === "up";
+
+  const safeBaseline = Number.isFinite(baseline) ? baseline : initialSnapshot.baseline;
+  const safeStrike = Number.isFinite(strike) ? strike : safeBaseline;
+  const safeAbove = Number.isFinite(aboveMultiplier)
+    ? aboveMultiplier
+    : initialSnapshot.aboveMultiplier;
+  const safeBelow = Number.isFinite(belowMultiplier)
+    ? belowMultiplier
+    : initialSnapshot.belowMultiplier;
+
+  const formatMultiplierValue = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) {
+      return "1.00";
+    }
+    if (value >= 1000) {
+      return value.toFixed(0);
+    }
+    if (value >= 100) {
+      return value.toFixed(1);
+    }
+    if (value >= 10) {
+      return value.toFixed(1);
+    }
+    return value.toFixed(2);
+  };
+
+  const aboveLabel = `x${formatMultiplierValue(safeAbove)}`;
+  const belowLabel = `x${formatMultiplierValue(safeBelow)}`;
+  const marketLabel = initialSnapshot.title ?? "BTC · USD";
+
+  const connectionClass =
+    connectionStatus === "connected"
+      ? "border-emerald-400/60 text-emerald-300"
+      : connectionStatus === "error"
+        ? "border-red-400/60 text-red-400"
+        : connectionStatus === "offline"
+          ? "border-yellow-300/40 text-yellow-200"
+          : "border-yellow-300/40 text-yellow-200";
+
+  const connectionText =
+    connectionStatus === "connected"
+      ? "Live feed"
+      : connectionStatus === "error"
+        ? "Reconnecting"
+        : connectionStatus === "offline"
+          ? "Offline"
+          : "Connecting";
 
   const updatePricePoints = useCallback(
     (timestamp: number, price: number | null) => {
@@ -695,162 +760,151 @@ export default function TradeClient({ initialSnapshot, slug }: TradeClientProps)
   }, [slug, updatePricePoints]);
 
   return (
-    <div className="flex min-h-[calc(100vh-5rem)] w-full items-start justify-center bg-black px-4 py-6 text-white">
-      <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(255,243,90,0.12),transparent_55%),_rgba(10,10,10,0.95)] p-6 shadow-[0_25px_60px_rgba(0,0,0,0.45)]">
+    <div className="flex min-h-[calc(100vh-5rem)] w-full justify-center bg-black px-4 py-6 text-white">
+      <div className="w-full max-w-xl space-y-6 rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(255,243,90,0.12),transparent_55%),_rgba(10,10,10,0.95)] p-6 shadow-[0_25px_60px_rgba(0,0,0,0.45)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1">
             <span className="text-[0.6rem] uppercase tracking-[0.3em] text-white/45">Baseline price</span>
-            <span className="text-2xl font-semibold tracking-tight text-white">
-              {currencyFormatter.format(baseline)}
-            </span>
-            <span className="text-xs uppercase tracking-[0.28em] text-white/50">
-              {countdown} · CLOSES IN
+            <span className="font-mono text-2xl font-semibold text-white">
+              {currencyFormatter.format(safeBaseline)}
             </span>
           </div>
-          <div className="flex flex-col items-end gap-3">
-            <div className="flex items-center gap-3">
-              <WalletBadge />
-              <button
-                type="button"
-                className="rounded-full bg-blue-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] text-white shadow-[0_0_35px_rgba(59,130,246,0.35)] transition hover:bg-blue-400"
-              >
-                Deposit
-              </button>
-            </div>
-            <div
-              className={`flex items-center gap-2 rounded-full border px-3 py-1 text-[0.6rem] uppercase tracking-[0.28em] ${
-                connectionStatus === "connected"
-                  ? "border-emerald-400/60 text-emerald-300"
-                  : connectionStatus === "error"
-                    ? "border-red-400/60 text-red-400"
-                    : "border-yellow-300/40 text-yellow-200"
-              }`}
+          <div className="text-right">
+            <span className="block text-[0.6rem] uppercase tracking-[0.3em] text-white/45">Closes in</span>
+            <span className="font-mono text-sm text-white">{countdown}</span>
+            <span className="block text-[0.6rem] uppercase tracking-[0.3em] text-white/30">CLOSES IN</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <WalletBadge />
+            <button
+              type="button"
+              className="rounded-full bg-blue-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] text-white shadow-[0_0_35px_rgba(59,130,246,0.35)] transition hover:bg-blue-400"
             >
-              <span className="h-2 w-2 rounded-full bg-current"></span>
-              <span>
-                {connectionStatus === "connected"
-                  ? "Live feed"
-                  : connectionStatus === "error"
-                    ? "Reconnecting"
-                    : connectionStatus === "offline"
-                      ? "Offline"
-                      : "Connecting"}
-              </span>
-            </div>
+              Deposit
+            </button>
+          </div>
+          <div
+            className={`flex items-center gap-2 rounded-full border px-3 py-1 text-[0.6rem] uppercase tracking-[0.28em] ${connectionClass}`}
+          >
+            <span className="h-2 w-2 rounded-full bg-current" />
+            <span>{connectionText}</span>
           </div>
         </div>
 
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="text-sm uppercase tracking-[0.35em] text-white/45">BTC · USD</div>
-            <div className="mt-2 flex items-baseline gap-3">
-              <span className="font-mono text-4xl font-semibold tracking-tight text-white">
-                {currencyFormatter.format(currentPrice)}
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <span className="text-xs uppercase tracking-[0.35em] text-white/45">{marketLabel}</span>
+              <div className="mt-3 flex items-baseline gap-3">
+                <span className="font-mono text-4xl font-semibold tracking-tight text-white">
+                  {currencyFormatter.format(currentPrice)}
+                </span>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] ${
+                    isAboveBaseline ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/20 text-red-400"
+                  }`}
+                >
+                  {baselineTrend.text}
+                </span>
+              </div>
+            </div>
+            <div className="text-right text-xs uppercase tracking-[0.3em] text-white/50">
+              <span className="block">Updated</span>
+              <span className="font-mono text-white/70">
+                {timeFormatter.format(new Date(lastFetchRef.current))}
               </span>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] ${
-                  isUp ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-400"
-                }`}
-              >
-                {trendLabel}
+              <span className="mt-1 block text-[0.6rem] text-white/35">
+                {source === "limitless" ? "Limitless live feed" : "Snapshot fallback"}
               </span>
             </div>
           </div>
-          <div className="flex flex-col items-end text-right text-xs uppercase tracking-[0.3em] text-white/50">
-            <span>Last update</span>
-            <span className="font-mono text-white/70">
-              {timeFormatter.format(new Date(lastFetchRef.current))}
-            </span>
-            <span className="mt-1 text-[0.6rem] text-white/40">{source === "limitless" ? "Limitless oracle" : "Fallback feed"}</span>
-          </div>
-        </div>
 
-        <div className="mt-8 rounded-2xl border border-white/10 bg-black/60 p-4 shadow-[inset_0_0_20px_rgba(255,255,255,0.05)]">
-          {error ? (
-            <div className="rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-center text-sm text-red-200">
-              Failed to refresh market: {error}
-            </div>
-          ) : (
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <XAxis dataKey="time" stroke="#888" tickLine={false} axisLine={false} />
-                  <YAxis
-                    stroke="#888"
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(value: number) => compactCurrencyFormatter.format(value)}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#090909",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: 16,
-                      color: "#fff",
-                      fontSize: 12,
-                    }}
-                    formatter={(value: number) => [currencyFormatter.format(value), "Price"]}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="price"
-                    stroke="#39FFB0"
-                    strokeWidth={2.6}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
-                  {Number.isFinite(strike) && (
-                    <ReferenceLine
-                      y={strike}
-                      stroke="#FF5A5F"
-                      strokeDasharray="6 6"
-                      label={{ value: "BASELINE", position: "right", fill: "#FF5A5F", fontSize: 11 }}
+          <div className="rounded-2xl border border-white/10 bg-black/60 p-4 shadow-[inset_0_0_20px_rgba(255,255,255,0.05)]">
+            {error ? (
+              <div className="rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-center text-sm text-red-200">
+                Failed to refresh market: {error}
+              </div>
+            ) : (
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <XAxis dataKey="time" stroke="#888" tickLine={false} axisLine={false} />
+                    <YAxis
+                      stroke="#888"
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(value: number) => compactCurrencyFormatter.format(value)}
                     />
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+                    <Tooltip
+                      contentStyle={{
+                        background: "#090909",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        borderRadius: 16,
+                        color: "#fff",
+                        fontSize: 12,
+                      }}
+                      formatter={(value: number) => [currencyFormatter.format(value), "Price"]}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="price"
+                      stroke="#FF4D67"
+                      strokeWidth={2.6}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                    {Number.isFinite(safeStrike) && (
+                      <ReferenceLine
+                        y={safeStrike}
+                        stroke="#FF8A80"
+                        strokeDasharray="6 6"
+                        label={{ value: "BASELINE", position: "right", fill: "#FF8A80", fontSize: 11 }}
+                      />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="mt-6 flex flex-col gap-3">
+        <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
               onClick={() => setSelectedSide("above")}
-              className={`flex flex-1 items-center justify-between rounded-2xl border px-5 py-3 text-left text-sm font-semibold uppercase tracking-[0.3em] transition ${
+              className={`flex flex-1 items-center justify-between rounded-2xl border px-5 py-3 text-left text-sm font-semibold uppercase tracking-[0.28em] transition ${
                 selectedSide === "above"
                   ? "border-white bg-white text-black shadow-[0_18px_40px_rgba(255,255,255,0.2)]"
-                  : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
+                  : "border-white/12 bg-white/5 text-white/80 hover:border-white/20"
               }`}
             >
               <span>Above ↑</span>
-              <span className="text-base font-bold">x{aboveMultiplier.toFixed(2)}</span>
+              <span className="font-mono text-base">{aboveLabel}</span>
             </button>
             <button
               type="button"
               onClick={() => setSelectedSide("below")}
-              className={`flex flex-1 items-center justify-between rounded-2xl border px-5 py-3 text-left text-sm font-semibold uppercase tracking-[0.3em] transition ${
+              className={`flex flex-1 items-center justify-between rounded-2xl border px-5 py-3 text-left text-sm font-semibold uppercase tracking-[0.28em] transition ${
                 selectedSide === "below"
-                  ? "border-white/20 bg-white/10 text-white shadow-[0_18px_40px_rgba(248,113,113,0.2)]"
-                  : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
+                  ? "border-white bg-white text-black shadow-[0_18px_40px_rgba(255,255,255,0.2)]"
+                  : "border-white/12 bg-white/5 text-white/80 hover:border-white/20"
               }`}
             >
               <span>Below ↓</span>
-              <span className="text-base font-bold">x{belowMultiplier.toFixed(2)}</span>
+              <span className="font-mono text-base">{belowLabel}</span>
             </button>
-          </div>
-          <div className="grid grid-cols-2 gap-4 rounded-2xl border border-white/10 bg-white/5/20 p-4 text-xs uppercase tracking-[0.3em] text-white/60">
-            <StatBlock label="Baseline" value={currencyFormatter.format(baseline)} />
-            <StatBlock label="Current" value={currencyFormatter.format(currentPrice)} />
-            <StatBlock label="Above odds" value={`x${aboveMultiplier.toFixed(2)}`} />
-            <StatBlock label="Below odds" value={`x${belowMultiplier.toFixed(2)}`} />
           </div>
         </div>
 
-        <div className="mt-8">
-          <PositionCard position={initialSnapshot.position} />
-        </div>
+        <PositionCard position={initialSnapshot.position} />
+
+        <p className="text-center text-[0.6rem] uppercase tracking-[0.3em] text-white/45">
+          Auto-refreshing every 3 seconds · Source: {source === "limitless" ? "Limitless API" : "Mock snapshot"}
+        </p>
       </div>
     </div>
   );
