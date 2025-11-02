@@ -11,51 +11,23 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-interface ApiPricePoint {
-  timestamp: number | string;
-  price: number | string;
-}
+type ApiPricePoint = {
+  timestamp: number;
+  price: number;
+};
 
-interface ApiResponse {
+type ApiResponse = {
+  strike: number | null;
   prices?: ApiPricePoint[];
-  strike?: number | string | null;
-}
+};
 
-type ChartPoint = {
-  [key: string]: string | number;
+type ChartDatum = {
   time: string;
   price: number;
 };
 
-function toNumber(value: number | string | null | undefined): number | null {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
-}
-
-function formatTimestampLabel(timestamp: number | string): string {
-  const numeric = toNumber(timestamp);
-  if (numeric === null) {
-    return "";
-  }
-
-  const ms = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
-  return new Date(ms).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
 export default function ETHLiveChart() {
-  const [data, setData] = useState<ChartPoint[]>([]);
+  const [data, setData] = useState<ChartDatum[]>([]);
   const [price, setPrice] = useState(0);
   const [strike, setStrike] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,45 +39,37 @@ export default function ETHLiveChart() {
         throw new Error(`Request failed with status ${res.status}`);
       }
 
-      const json = (await res.json()) as ApiResponse;
-      const rawPrices = json.prices ?? [];
-
-      const formatted = rawPrices
-        .map((entry) => {
-          const numericPrice = toNumber(entry.price);
-          const numericTimestamp = toNumber(entry.timestamp);
-
-          if (numericPrice === null || numericTimestamp === null) {
-            return null;
-          }
-
-          return {
-            time: formatTimestampLabel(numericTimestamp),
-            price: numericPrice,
-          } satisfies ChartPoint;
-        })
-        .filter((point): point is ChartPoint => point !== null);
-
-      if (formatted.length === 0) {
+      const json: ApiResponse = await res.json();
+      if (!Array.isArray(json.prices)) {
         throw new Error("No data");
       }
 
-      const latest = formatted.at(-1);
+      const formatted: ChartDatum[] = json.prices.map((point) => ({
+        time: new Date(point.timestamp).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        price: Number(point.price),
+      }));
+
+      const latestPrice = formatted.at(-1)?.price ?? 0;
+
       setData(formatted);
-      setPrice(latest?.price ?? 0);
-      setStrike(toNumber(json.strike ?? null));
+      setPrice(latestPrice);
+      setStrike(json.strike ?? null);
       setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("ETH live chart fetch error:", message);
+      console.error(err);
       setError(message);
     }
   };
 
   useEffect(() => {
     fetchData();
-    const interval = window.setInterval(fetchData, 3_000);
-    return () => window.clearInterval(interval);
+    const interval = setInterval(fetchData, 3_000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -122,10 +86,10 @@ export default function ETHLiveChart() {
             <div className="text-red-400 text-sm mb-2">Strike: ${strike}</div>
           )}
           <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer>
               <LineChart data={data}>
-                <XAxis dataKey="time" stroke="#777" />
-                <YAxis stroke="#777" />
+                <XAxis dataKey="time" tick={{ fill: "#777" }} />
+                <YAxis tick={{ fill: "#777" }} domain={["auto", "auto"]} />
                 <Tooltip
                   contentStyle={{
                     background: "#111",
